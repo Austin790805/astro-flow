@@ -16,6 +16,7 @@ import './app-root.scss';
 
 const Layout = lazy(() => import('../components/layout'));
 const AppRoot = lazy(() => import('./app-root'));
+const HomePage = lazy(() => import('../pages/homepage'));
 
 /**
  * Component wrapper to handle language URL parameter
@@ -33,32 +34,45 @@ const routerBasename = isPreviewMode() ? PREVIEW_BASE_PATH : undefined;
 
 const router = createBrowserRouter(
     createRoutesFromElements(
-        <Route
-            path='/'
-            element={
-                <Suspense
-                    fallback={<ChunkLoader message={localize('Please wait while we connect to the server...')} />}
-                >
-                    <TranslationProvider defaultLang='EN' i18nInstance={i18nInstance}>
-                        <LanguageHandler>
-                            <StoreProvider>
-                                <LocalStorageSyncWrapper>
-                                    <RoutePromptDialog />
-                                    <CoreStoreProvider>
-                                        <Layout />
-                                    </CoreStoreProvider>
-                                </LocalStorageSyncWrapper>
-                            </StoreProvider>
-                        </LanguageHandler>
-                    </TranslationProvider>
-                </Suspense>
-            }
-        >
-            {/* All child routes will be passed as children to Layout */}
-            <Route index element={<AppRoot />} />
-            {/* App Builder embeds the template at /preview — render the same app shell */}
-            <Route path='preview' element={<AppRoot />} />
-        </Route>
+        <>
+            {/*
+             * Homepage / Landing Page — served at root "/".
+             * This is a standalone page with its own hero, features, and
+             * interactive Login / Sign-up buttons (no app shell / header).
+             */}
+            <Route path='/' element={<HomePage />} />
+
+            {/*
+             * Main Trading App — served at "/bot" and below.
+             * All existing app routes live under the Layout wrapper.
+             */}
+            <Route
+                path='/bot/*'
+                element={
+                    <Suspense
+                        fallback={<ChunkLoader message={localize('Please wait while we connect to the server...')} />}
+                    >
+                        <TranslationProvider defaultLang='EN' i18nInstance={i18nInstance}>
+                            <LanguageHandler>
+                                <StoreProvider>
+                                    <LocalStorageSyncWrapper>
+                                        <RoutePromptDialog />
+                                        <CoreStoreProvider>
+                                            <Layout />
+                                        </CoreStoreProvider>
+                                    </LocalStorageSyncWrapper>
+                                </StoreProvider>
+                            </LanguageHandler>
+                        </TranslationProvider>
+                    </Suspense>
+                }
+            >
+                {/* All child routes will be passed as children to Layout */}
+                <Route index element={<AppRoot />} />
+                {/* App Builder embeds the template at /preview — render the same app shell */}
+                <Route path='preview' element={<AppRoot />} />
+            </Route>
+        </>
     ),
     { basename: routerBasename }
 );
@@ -81,9 +95,15 @@ function App() {
 
         const handleCallback = async () => {
             try {
+                // OAuth callback may arrive at "/bot" or "/bot/preview" depending on build mode.
+                const isPreview = process.env.NEXT_PUBLIC_APP_BUILD === 'true';
+                const oauthRedirectUri = isPreview
+                    ? `${window.location.origin}/bot/preview`
+                    : `${window.location.origin}/bot`;
+
                 const authInfo = await handleOAuthCallback(window.location.href, {
                     clientId: process.env.NEXT_PUBLIC_DERIV_APP_ID || '',
-                    redirectUri: window.location.origin,
+                    redirectUri: oauthRedirectUri,
                     scopes: 'trade',
                 });
 

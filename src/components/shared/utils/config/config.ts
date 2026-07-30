@@ -103,9 +103,17 @@ export const generateOAuthURL = async (prompt?: string): Promise<string> => {
         const clientId = process.env.NEXT_PUBLIC_DERIV_APP_ID;
         if (!clientId) return '';
 
+        // Redirect back to the trading app (/bot) after authentication.
+        // The homepage lives at "/" and the bot UI at "/bot".
+        const isPreview = process.env.NEXT_PUBLIC_APP_BUILD === 'true';
+        const redirectBase = window.location.origin;
+        const redirectUri = isPreview
+            ? `${redirectBase}/bot/preview`
+            : `${redirectBase}/bot`;
+
         const config: AuthConfig = {
             clientId,
-            redirectUri: window.location.origin,
+            redirectUri,
             scopes: 'trade',
         };
 

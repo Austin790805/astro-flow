@@ -16,6 +16,55 @@ import CircularWrapper from './circular-wrapper';
 import ContractStageText from './contract-stage-text';
 import './run-panel-tooltip.scss';
 
+/**
+ * SpeedToggle: A compact toggle switch between Normal and Fast execution speed.
+ * Shows a small icon + label next to the Run button.
+ */
+const SpeedToggle: React.FC<{
+    speed: 'normal' | 'fast';
+    onToggle: () => void;
+    is_disabled?: boolean;
+}> = ({ speed, onToggle, is_disabled }) => {
+    return (
+        <button
+            type='button'
+            className={classNames('speed-toggle', {
+                'speed-toggle--fast': speed === 'fast',
+                'speed-toggle--normal': speed === 'normal',
+                'speed-toggle--disabled': is_disabled,
+            })}
+            onClick={onToggle}
+            disabled={is_disabled}
+            title={speed === 'fast' ? 'Switch to Normal speed' : 'Switch to Fast speed'}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                border: '1px solid var(--general-active, #ddd)',
+                backgroundColor: speed === 'fast'
+                    ? 'var(--status-success, #4CAF50)'
+                    : 'var(--general-section-2, #f5f5f5)',
+                color: speed === 'fast'
+                    ? '#fff'
+                    : 'var(--text-general, #333)',
+                cursor: is_disabled ? 'default' : 'pointer',
+                fontSize: '12px',
+                fontWeight: 600,
+                transition: 'all 0.2s ease',
+                whiteSpace: 'nowrap',
+                opacity: is_disabled ? 0.5 : 1,
+            }}
+        >
+            <span style={{ fontSize: '14px' }}>
+                {speed === 'fast' ? '⚡' : '🐢'}
+            </span>
+            <span>{speed === 'fast' ? 'Fast' : 'Normal'}</span>
+        </button>
+    );
+};
+
 type TTradeAnimation = {
     className?: string;
     should_show_overlay?: boolean;
@@ -28,7 +77,7 @@ const TradeAnimation = observer(({ className, should_show_overlay }: TTradeAnima
     const { isMobile } = useDevice();
 
     const { is_contract_completed, profit } = summary_card;
-    const { contract_stage, is_stop_button_visible, is_stop_button_disabled, onRunButtonClick, onStopBotClick } =
+    const { contract_stage, is_stop_button_visible, is_stop_button_disabled, onRunButtonClick, onStopBotClick, execution_speed, toggleExecutionSpeed } =
         run_panel;
     const [shouldDisable, setShouldDisable] = React.useState(false);
     const is_unavailable_for_payment_agent = false;
@@ -174,7 +223,12 @@ const TradeAnimation = observer(({ className, should_show_overlay }: TTradeAnima
                         icon='info'
                         className='qs__tooltip'
                     />
-                    <div style={{ opacity: 0.5, marginLeft: '8px' }}>
+                    <div style={{ opacity: 0.5, marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <SpeedToggle
+                            speed={execution_speed}
+                            onToggle={toggleExecutionSpeed}
+                            is_disabled={true}
+                        />
                         <Button
                             is_disabled={true}
                             className={button_props.class}
@@ -193,28 +247,35 @@ const TradeAnimation = observer(({ className, should_show_overlay }: TTradeAnima
                     </div>
                 </div>
             ) : (
-                <Button
-                    is_disabled={(is_disabled && !is_unavailable_for_payment_agent) || contract_stage === 3}
-                    className={button_props.class}
-                    id={button_props.id}
-                    icon={button_props.icon}
-                    onClick={() => {
-                        setShouldDisable(true);
-                        if (is_stop_button_visible) {
-                            onStopBotClick();
-                            return;
-                        }
-                        onRunButtonClick();
-                        /* [AI] - Analytics event tracking removed - see migrate-docs/MONITORING_PACKAGES.md for re-implementation guide */
-                        /* [/AI] */
-                    }}
-                    has_effect
-                    {...(is_stop_button_visible || !is_unavailable_for_payment_agent
-                        ? { primary: true }
-                        : { green: true })}
-                >
-                    {button_props.text}
-                </Button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <SpeedToggle
+                        speed={execution_speed}
+                        onToggle={toggleExecutionSpeed}
+                        is_disabled={is_stop_button_visible}
+                    />
+                    <Button
+                        is_disabled={(is_disabled && !is_unavailable_for_payment_agent) || contract_stage === 3}
+                        className={button_props.class}
+                        id={button_props.id}
+                        icon={button_props.icon}
+                        onClick={() => {
+                            setShouldDisable(true);
+                            if (is_stop_button_visible) {
+                                onStopBotClick();
+                                return;
+                            }
+                            onRunButtonClick();
+                            /* [AI] - Analytics event tracking removed - see migrate-docs/MONITORING_PACKAGES.md for re-implementation guide */
+                            /* [/AI] */
+                        }}
+                        has_effect
+                        {...(is_stop_button_visible || !is_unavailable_for_payment_agent
+                            ? { primary: true }
+                            : { green: true })}
+                    >
+                        {button_props.text}
+                    </Button>
+                </div>
             )}
             <div
                 className={classNames('animation__container', className, {

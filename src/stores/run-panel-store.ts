@@ -56,6 +56,9 @@ export default class RunPanelStore {
             setIsRunning: action,
             onRunButtonClick: action,
             is_contract_buying_in_progress: observable,
+            execution_speed: observable,
+            setExecutionSpeed: action,
+            toggleExecutionSpeed: action,
             SetpurchaseInProgress: action,
             onStopButtonClick: action,
             onClearStatClick: action,
@@ -109,6 +112,7 @@ export default class RunPanelStore {
     is_sell_requested = false;
     show_bot_stop_message = false;
     is_contract_buying_in_progress = false;
+    execution_speed: 'normal' | 'fast' = 'normal';
 
     run_id = '';
     onOkButtonClick: (() => void) | null = null;
@@ -297,6 +301,14 @@ export default class RunPanelStore {
 
     toggleStatisticsInfoModal = () => {
         this.is_statistics_info_modal_open = !this.is_statistics_info_modal_open;
+    };
+
+    setExecutionSpeed = (speed: 'normal' | 'fast') => {
+        this.execution_speed = speed;
+    };
+
+    toggleExecutionSpeed = () => {
+        this.execution_speed = this.execution_speed === 'normal' ? 'fast' : 'normal';
     };
 
     toggleDrawer = (is_open: boolean) => {

@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import React from 'react';
-import { createBrowserRouter, createRoutesFromElements, Route, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, createRoutesFromElements, Route, RouterProvider, Navigate } from 'react-router-dom';
 import { cleanupUrl, handleOAuthCallback } from '@/external/deriv-core';
 import ChunkLoader from '@/components/loader/chunk-loader';
 import LocalStorageSyncWrapper from '@/components/localStorage-sync-wrapper';
@@ -32,15 +32,86 @@ const LanguageHandler = ({ children }: { children: React.ReactNode }) => {
 // partner deploys are served at the root, so no basename there.
 const routerBasename = isPreviewMode() ? PREVIEW_BASE_PATH : undefined;
 
+/**
+ * OAuthCallbackRoute renders the homepage and processes the OAuth callback
+ * (Deriv redirects to window.location.origin which is "/").
+ * After successful authentication it navigates the user to /bot.
+ *
+ * This component is a route element, so it has access to useNavigate via
+ * react-router-dom's RouterProvider context.
+ */
+function OAuthCallbackRoute() {
+    const [isProcessing, setIsProcessing] = React.useState(true);
+
+    React.useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.has('code')) {
+            setIsProcessing(false);
+            return;
+        }
+
+        const handleCallback = async () => {
+            try {
+                const authInfo = await handleOAuthCallback(window.location.href, {
+                    clientId: process.env.NEXT_PUBLIC_DERIV_APP_ID || '',
+                    redirectUri: window.location.origin,
+                    scopes: 'trade',
+                });
+
+                const { DerivWSAccountsService } = await import('@/services/derivws-accounts.service');
+                const accounts = await DerivWSAccountsService.fetchAccountsList(authInfo.access_token);
+
+                if (accounts && accounts.length > 0) {
+                    DerivWSAccountsService.storeAccounts(accounts);
+                    const firstAccount = accounts[0];
+                    localStorage.setItem('active_loginid', firstAccount.account_id);
+                    const isDemo =
+                        firstAccount.account_id.startsWith('VRT') || firstAccount.account_id.startsWith('VRTC');
+                    localStorage.setItem('account_type', isDemo ? 'demo' : 'real');
+
+                    const { api_base } = await import('@/external/bot-skeleton');
+                    await api_base.init(true);
+
+                    // Navigate to the trading app after successful authentication
+                    window.location.replace('/bot');
+                } else {
+                    console.error('No accounts returned after authentication');
+                }
+            } catch (error) {
+                console.error('OAuth callback error:', error);
+            } finally {
+                cleanupUrl(window.location.origin);
+                setIsProcessing(false);
+            }
+        };
+
+        handleCallback();
+    }, []);
+
+    if (isProcessing) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0a0e17' }}>
+                <div style={{ textAlign: 'center', color: '#94a3b8' }}>
+                    <div style={{ fontSize: '18px', marginBottom: '16px' }}>Completing sign in…</div>
+                    <div className="homepage__loading-spinner" />
+                </div>
+            </div>
+        );
+    }
+
+    return <HomePage />;
+}
+
 const router = createBrowserRouter(
     createRoutesFromElements(
         <>
             {/*
              * Homepage / Landing Page — served at root "/".
+             * The root route also handles the OAuth callback (code= param).
              * This is a standalone page with its own hero, features, and
              * interactive Login / Sign-up buttons (no app shell / header).
              */}
-            <Route path='/' element={<HomePage />} />
+            <Route path='/' element={<OAuthCallbackRoute />} />
 
             {/*
              * Main Trading App — served at "/bot" and below.
@@ -72,6 +143,13 @@ const router = createBrowserRouter(
                 {/* App Builder embeds the template at /preview — render the same app shell */}
                 <Route path='preview' element={<AppRoot />} />
             </Route>
+
+            {/*
+             * Catch-all: any unmatched route redirects to the homepage.
+             * This prevents "we couldn't find that page" errors from the
+             * OAuth callback or any other unexpected URL.
+             */}
+            <Route path='*' element={<Navigate to='/' replace />} />
         </>
     ),
     { basename: routerBasename }
@@ -88,50 +166,6 @@ const router = createBrowserRouter(
 function App() {
     // Handle account switching via URL parameter
     useAccountSwitching();
-
-    React.useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.has('code')) return;
-
-        const handleCallback = async () => {
-            try {
-                // OAuth callback may arrive at "/bot" or "/bot/preview" depending on build mode.
-                const isPreview = process.env.NEXT_PUBLIC_APP_BUILD === 'true';
-                const oauthRedirectUri = isPreview
-                    ? `${window.location.origin}/bot/preview`
-                    : `${window.location.origin}/bot`;
-
-                const authInfo = await handleOAuthCallback(window.location.href, {
-                    clientId: process.env.NEXT_PUBLIC_DERIV_APP_ID || '',
-                    redirectUri: oauthRedirectUri,
-                    scopes: 'trade',
-                });
-
-                const { DerivWSAccountsService } = await import('@/services/derivws-accounts.service');
-                const accounts = await DerivWSAccountsService.fetchAccountsList(authInfo.access_token);
-
-                if (accounts && accounts.length > 0) {
-                    DerivWSAccountsService.storeAccounts(accounts);
-                    const firstAccount = accounts[0];
-                    localStorage.setItem('active_loginid', firstAccount.account_id);
-                    const isDemo =
-                        firstAccount.account_id.startsWith('VRT') || firstAccount.account_id.startsWith('VRTC');
-                    localStorage.setItem('account_type', isDemo ? 'demo' : 'real');
-
-                    const { api_base } = await import('@/external/bot-skeleton');
-                    await api_base.init(true);
-                } else {
-                    console.error('No accounts returned after authentication');
-                }
-            } catch (error) {
-                console.error('OAuth callback error:', error);
-            } finally {
-                cleanupUrl(window.location.origin);
-            }
-        };
-
-        handleCallback();
-    }, []);
 
     return <RouterProvider router={router} />;
 }

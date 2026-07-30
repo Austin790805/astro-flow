@@ -103,13 +103,10 @@ export const generateOAuthURL = async (prompt?: string): Promise<string> => {
         const clientId = process.env.NEXT_PUBLIC_DERIV_APP_ID;
         if (!clientId) return '';
 
-        // Redirect back to the trading app (/bot) after authentication.
-        // The homepage lives at "/" and the bot UI at "/bot".
-        const isPreview = process.env.NEXT_PUBLIC_APP_BUILD === 'true';
-        const redirectBase = window.location.origin;
-        const redirectUri = isPreview
-            ? `${redirectBase}/bot/preview`
-            : `${redirectBase}/bot`;
+        // Use window.location.origin as the redirect URI so it matches the
+        // Deriv-registered OAuth redirect. After the callback is processed on
+        // the homepage, the user is navigated to /bot client-side.
+        const redirectUri = window.location.origin;
 
         const config: AuthConfig = {
             clientId,

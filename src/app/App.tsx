@@ -32,86 +32,19 @@ const LanguageHandler = ({ children }: { children: React.ReactNode }) => {
 // partner deploys are served at the root, so no basename there.
 const routerBasename = isPreviewMode() ? PREVIEW_BASE_PATH : undefined;
 
-/**
- * OAuthCallbackRoute renders the homepage and processes the OAuth callback
- * (Deriv redirects to window.location.origin which is "/").
- * After successful authentication it navigates the user to /bot.
- *
- * This component is a route element, so it has access to useNavigate via
- * react-router-dom's RouterProvider context.
- */
-function OAuthCallbackRoute() {
-    const [isProcessing, setIsProcessing] = React.useState(true);
-
-    React.useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.has('code')) {
-            setIsProcessing(false);
-            return;
-        }
-
-        const handleCallback = async () => {
-            try {
-                const authInfo = await handleOAuthCallback(window.location.href, {
-                    clientId: process.env.NEXT_PUBLIC_DERIV_APP_ID || '',
-                    redirectUri: window.location.origin,
-                    scopes: 'trade',
-                });
-
-                const { DerivWSAccountsService } = await import('@/services/derivws-accounts.service');
-                const accounts = await DerivWSAccountsService.fetchAccountsList(authInfo.access_token);
-
-                if (accounts && accounts.length > 0) {
-                    DerivWSAccountsService.storeAccounts(accounts);
-                    const firstAccount = accounts[0];
-                    localStorage.setItem('active_loginid', firstAccount.account_id);
-                    const isDemo =
-                        firstAccount.account_id.startsWith('VRT') || firstAccount.account_id.startsWith('VRTC');
-                    localStorage.setItem('account_type', isDemo ? 'demo' : 'real');
-
-                    const { api_base } = await import('@/external/bot-skeleton');
-                    await api_base.init(true);
-
-                    // Navigate to the trading app after successful authentication
-                    window.location.replace('/bot');
-                } else {
-                    console.error('No accounts returned after authentication');
-                }
-            } catch (error) {
-                console.error('OAuth callback error:', error);
-            } finally {
-                cleanupUrl(window.location.origin);
-                setIsProcessing(false);
-            }
-        };
-
-        handleCallback();
-    }, []);
-
-    if (isProcessing) {
-        return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0a0e17' }}>
-                <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-                    <div style={{ fontSize: '18px', marginBottom: '16px' }}>Completing sign in…</div>
-                    <div className="homepage__loading-spinner" />
-                </div>
-            </div>
-        );
-    }
-
-    return <HomePage />;
-}
-
 const router = createBrowserRouter(
     createRoutesFromElements(
         <>
             {/*
              * Homepage / Landing Page — served at root "/".
-             * The root route also handles the OAuth callback (code= param).
              * This is a standalone page with its own hero, features, and
              * interactive Login / Sign-up buttons (no app shell / header).
+             *
+             * When Deriv's OAuth callback returns (with ?code= param),
+             * the callback is handled by the HomePage component via its
+             * own useEffect (since it's a route element inside RouterProvider).
              */}
-            <Route path='/' element={<OAuthCallbackRoute />} />
+            <Route path='/' element={<HomePage />} />
 
             {/*
              * Main Trading App — served at "/bot" and below.
@@ -146,8 +79,7 @@ const router = createBrowserRouter(
 
             {/*
              * Catch-all: any unmatched route redirects to the homepage.
-             * This prevents "we couldn't find that page" errors from the
-             * OAuth callback or any other unexpected URL.
+             * This prevents "we couldn't find that page" errors.
              */}
             <Route path='*' element={<Navigate to='/' replace />} />
         </>

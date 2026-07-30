@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import React from 'react';
-import { createBrowserRouter, createRoutesFromElements, Route, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, createRoutesFromElements, Route, RouterProvider, Navigate } from 'react-router-dom';
 import { cleanupUrl, handleOAuthCallback } from '@/external/deriv-core';
 import ChunkLoader from '@/components/loader/chunk-loader';
 import LocalStorageSyncWrapper from '@/components/localStorage-sync-wrapper';
@@ -39,6 +39,10 @@ const router = createBrowserRouter(
              * Homepage / Landing Page — served at root "/".
              * This is a standalone page with its own hero, features, and
              * interactive Login / Sign-up buttons (no app shell / header).
+             *
+             * When Deriv's OAuth callback returns (with ?code= param),
+             * the callback is handled by the HomePage component via its
+             * own useEffect (since it's a route element inside RouterProvider).
              */}
             <Route path='/' element={<HomePage />} />
 
@@ -72,6 +76,12 @@ const router = createBrowserRouter(
                 {/* App Builder embeds the template at /preview — render the same app shell */}
                 <Route path='preview' element={<AppRoot />} />
             </Route>
+
+            {/*
+             * Catch-all: any unmatched route redirects to the homepage.
+             * This prevents "we couldn't find that page" errors.
+             */}
+            <Route path='*' element={<Navigate to='/' replace />} />
         </>
     ),
     { basename: routerBasename }
@@ -88,50 +98,6 @@ const router = createBrowserRouter(
 function App() {
     // Handle account switching via URL parameter
     useAccountSwitching();
-
-    React.useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.has('code')) return;
-
-        const handleCallback = async () => {
-            try {
-                // OAuth callback may arrive at "/bot" or "/bot/preview" depending on build mode.
-                const isPreview = process.env.NEXT_PUBLIC_APP_BUILD === 'true';
-                const oauthRedirectUri = isPreview
-                    ? `${window.location.origin}/bot/preview`
-                    : `${window.location.origin}/bot`;
-
-                const authInfo = await handleOAuthCallback(window.location.href, {
-                    clientId: process.env.NEXT_PUBLIC_DERIV_APP_ID || '',
-                    redirectUri: oauthRedirectUri,
-                    scopes: 'trade',
-                });
-
-                const { DerivWSAccountsService } = await import('@/services/derivws-accounts.service');
-                const accounts = await DerivWSAccountsService.fetchAccountsList(authInfo.access_token);
-
-                if (accounts && accounts.length > 0) {
-                    DerivWSAccountsService.storeAccounts(accounts);
-                    const firstAccount = accounts[0];
-                    localStorage.setItem('active_loginid', firstAccount.account_id);
-                    const isDemo =
-                        firstAccount.account_id.startsWith('VRT') || firstAccount.account_id.startsWith('VRTC');
-                    localStorage.setItem('account_type', isDemo ? 'demo' : 'real');
-
-                    const { api_base } = await import('@/external/bot-skeleton');
-                    await api_base.init(true);
-                } else {
-                    console.error('No accounts returned after authentication');
-                }
-            } catch (error) {
-                console.error('OAuth callback error:', error);
-            } finally {
-                cleanupUrl(window.location.origin);
-            }
-        };
-
-        handleCallback();
-    }, []);
 
     return <RouterProvider router={router} />;
 }

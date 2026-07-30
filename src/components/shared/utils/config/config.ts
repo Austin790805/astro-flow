@@ -103,9 +103,14 @@ export const generateOAuthURL = async (prompt?: string): Promise<string> => {
         const clientId = process.env.NEXT_PUBLIC_DERIV_APP_ID;
         if (!clientId) return '';
 
+        // Use window.location.origin as the redirect URI so it matches the
+        // Deriv-registered OAuth redirect. After the callback is processed on
+        // the homepage, the user is navigated to /bot client-side.
+        const redirectUri = window.location.origin;
+
         const config: AuthConfig = {
             clientId,
-            redirectUri: window.location.origin,
+            redirectUri,
             scopes: 'trade',
         };
 

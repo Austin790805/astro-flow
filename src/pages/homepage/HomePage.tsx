@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '@/components/shared_ui/button';
 import { generateOAuthURL } from '@/components/shared';
+import { cleanupUrl, handleOAuthCallback } from '@/external/deriv-core';
 import './homepage.scss';
 
 /**
@@ -16,6 +17,48 @@ const HomePage: React.FC = () => {
     const navigate = useNavigate();
     const [isAuthorizing, setIsAuthorizing] = useState(false);
     const [isScrolled, setIsScrolled] = useState(false);
+
+    // Handle OAuth callback when Deriv redirects back with ?code= param
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.has('code')) return;
+
+        const handleCallback = async () => {
+            try {
+                const authInfo = await handleOAuthCallback(window.location.href, {
+                    clientId: process.env.NEXT_PUBLIC_DERIV_APP_ID || '',
+                    redirectUri: window.location.origin,
+                    scopes: 'trade',
+                });
+
+                const { DerivWSAccountsService } = await import('@/services/derivws-accounts.service');
+                const accounts = await DerivWSAccountsService.fetchAccountsList(authInfo.access_token);
+
+                if (accounts && accounts.length > 0) {
+                    DerivWSAccountsService.storeAccounts(accounts);
+                    const firstAccount = accounts[0];
+                    localStorage.setItem('active_loginid', firstAccount.account_id);
+                    const isDemo =
+                        firstAccount.account_id.startsWith('VRT') || firstAccount.account_id.startsWith('VRTC');
+                    localStorage.setItem('account_type', isDemo ? 'demo' : 'real');
+
+                    const { api_base } = await import('@/external/bot-skeleton');
+                    await api_base.init(true);
+
+                    // Navigate to the trading app after successful authentication
+                    navigate('/bot', { replace: true });
+                } else {
+                    console.error('No accounts returned after authentication');
+                }
+            } catch (error) {
+                console.error('OAuth callback error:', error);
+            } finally {
+                cleanupUrl(window.location.origin);
+            }
+        };
+
+        handleCallback();
+    }, [navigate]);
 
     useEffect(() => {
         const handleScroll = () => {

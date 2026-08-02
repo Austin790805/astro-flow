@@ -112,7 +112,7 @@ export default class RunPanelStore {
     is_sell_requested = false;
     show_bot_stop_message = false;
     is_contract_buying_in_progress = false;
-    execution_speed: 'normal' | 'fast' = 'normal';
+    execution_speed: 'normal' | 'super_fast' = 'normal';
 
     run_id = '';
     onOkButtonClick: (() => void) | null = null;
@@ -303,12 +303,12 @@ export default class RunPanelStore {
         this.is_statistics_info_modal_open = !this.is_statistics_info_modal_open;
     };
 
-    setExecutionSpeed = (speed: 'normal' | 'fast') => {
+    setExecutionSpeed = (speed: 'normal' | 'super_fast') => {
         this.execution_speed = speed;
     };
 
     toggleExecutionSpeed = () => {
-        this.execution_speed = this.execution_speed === 'normal' ? 'fast' : 'normal';
+        this.execution_speed = this.execution_speed === 'normal' ? 'super_fast' : 'normal';
     };
 
     toggleDrawer = (is_open: boolean) => {

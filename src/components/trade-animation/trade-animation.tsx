@@ -17,11 +17,11 @@ import ContractStageText from './contract-stage-text';
 import './run-panel-tooltip.scss';
 
 /**
- * SpeedToggle: A compact toggle switch between Normal and Fast execution speed.
+ * SpeedToggle: A compact toggle switch between Normal and Super Fast execution speed.
  * Shows a small icon + label next to the Run button.
  */
 const SpeedToggle: React.FC<{
-    speed: 'normal' | 'fast';
+    speed: 'normal' | 'super_fast';
     onToggle: () => void;
     is_disabled?: boolean;
 }> = ({ speed, onToggle, is_disabled }) => {
@@ -29,13 +29,13 @@ const SpeedToggle: React.FC<{
         <button
             type='button'
             className={classNames('speed-toggle', {
-                'speed-toggle--fast': speed === 'fast',
+                'speed-toggle--super_fast': speed === 'super_fast',
                 'speed-toggle--normal': speed === 'normal',
                 'speed-toggle--disabled': is_disabled,
             })}
             onClick={onToggle}
             disabled={is_disabled}
-            title={speed === 'fast' ? 'Switch to Normal speed' : 'Switch to Fast speed'}
+            title={speed === 'super_fast' ? 'Switch to Normal speed' : 'Switch to Super Fast speed'}
             style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -43,10 +43,10 @@ const SpeedToggle: React.FC<{
                 padding: '4px 8px',
                 borderRadius: '4px',
                 border: '1px solid var(--general-active, #ddd)',
-                backgroundColor: speed === 'fast'
-                    ? 'var(--status-success, #4CAF50)'
+                backgroundColor: speed === 'super_fast'
+                    ? '#FF6B00'
                     : 'var(--general-section-2, #f5f5f5)',
-                color: speed === 'fast'
+                color: speed === 'super_fast'
                     ? '#fff'
                     : 'var(--text-general, #333)',
                 cursor: is_disabled ? 'default' : 'pointer',
@@ -58,9 +58,9 @@ const SpeedToggle: React.FC<{
             }}
         >
             <span style={{ fontSize: '14px' }}>
-                {speed === 'fast' ? '⚡' : '🐢'}
+                {speed === 'super_fast' ? '🚀' : '🐢'}
             </span>
-            <span>{speed === 'fast' ? 'Fast' : 'Normal'}</span>
+            <span>{speed === 'super_fast' ? 'Super Fast' : 'Normal'}</span>
         </button>
     );
 };

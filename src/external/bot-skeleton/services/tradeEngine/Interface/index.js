@@ -6,9 +6,9 @@ import getToolsInterface from './ToolsInterface';
 /**
  * Sleep function used by the bot interpreter to pause between operations.
  *
- * In 'fast' mode, the delay is reduced to 10% of the original:
- *   - sleep(1) becomes ~100ms instead of 1000ms (for the main loop)
- *   - sleep(5) becomes ~500ms instead of 5000ms (for market closed checks)
+ * In 'super_fast' mode, the delay is reduced to 1% of the original (99% reduction):
+ *   - sleep(1) becomes ~10ms instead of 1000ms (for the main loop)
+ *   - sleep(5) becomes ~50ms instead of 5000ms (for market closed checks)
  *
  * The execution speed is read from a global store reference set by StoreProvider.
  */
@@ -23,9 +23,9 @@ const getExecutionSpeed = () => {
 };
 
 const sleep = (observer, arg = 1) => {
-    // Check if fast mode is enabled
+    // Check if super fast mode is enabled
     const speed = getExecutionSpeed();
-    const multiplier = speed === 'fast' ? 0.1 : 1;
+    const multiplier = speed === 'super_fast' ? 0.01 : 1;
     const delayMs = arg * 1000 * multiplier;
 
     return new Promise(

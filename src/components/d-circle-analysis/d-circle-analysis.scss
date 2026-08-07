@@ -1,0 +1,404 @@
+.d-circle-analysis {
+    background: #0d1b2a;
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 340px;
+    max-width: 400px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+// Tabs
+.d-circle-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+
+    .d-circle-tab {
+        flex: 1;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: #1a2d42;
+        color: #8899aa;
+
+        &--active {
+            background: #FF6B35;
+            color: #fff;
+        }
+
+        &:hover:not(.d-circle-tab--active) {
+            background: #243a52;
+        }
+    }
+}
+
+// Controls
+.d-circle-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.market-select {
+    flex: 1;
+    min-width: 140px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #2a4060;
+    background: #1a2d42;
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    appearance: auto;
+
+    option {
+        background: #1a2d42;
+        color: #fff;
+    }
+}
+
+.ticks-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    .ticks-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #8899aa;
+        text-transform: uppercase;
+    }
+
+    .ticks-input {
+        width: 60px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #2a4060;
+        background: #1a2d42;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        text-align: center;
+    }
+}
+
+.live-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    .live-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: #8899aa;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .live-value {
+        font-size: 22px;
+        font-weight: 700;
+        color: #FF6B35;
+        line-height: 1.2;
+    }
+}
+
+// Warnings
+.login-warning,
+.connection-warning {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.login-warning {
+    background: rgba(255, 107, 53, 0.15);
+    color: #FF6B35;
+    border: 1px solid rgba(255, 107, 53, 0.3);
+}
+
+.connection-warning {
+    background: rgba(74, 107, 255, 0.15);
+    color: #4A6BFF;
+    border: 1px solid rgba(74, 107, 255, 0.3);
+}
+
+// Digit Circles
+.digits-circles-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.digits-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+}
+
+.digit-circle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &--active {
+        animation: pulse-ring 1.5s ease-in-out infinite;
+    }
+}
+
+@keyframes pulse-ring {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+.digit-ring {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border-style: solid;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #0d1b2a;
+    box-shadow: 0 0 12px rgba(74, 107, 255, 0.3);
+    transition: all 0.3s ease;
+
+    .digit-value {
+        font-size: 22px;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1;
+    }
+
+    .digit-percentage {
+        font-size: 11px;
+        font-weight: 500;
+        color: #8899aa;
+        margin-top: 2px;
+    }
+}
+
+.digit-circle--highlighted .digit-ring {
+    border-color: #FF1744 !important;
+    box-shadow: 0 0 16px rgba(255, 23, 68, 0.5);
+}
+
+// Analysis Container
+.analysis-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+// Analysis Section
+.analysis-section {
+    background: #111d2e;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #1a2d42;
+}
+
+.analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.analysis-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.analysis-suggestion {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4CAF50;
+
+    &.differ-suggestion {
+        color: #4A6BFF;
+    }
+
+    &.even-odd-suggestion {
+        color: #FF9800;
+    }
+
+    &.rise-fall-suggestion {
+        color: #4CAF50;
+    }
+}
+
+// Digit Selector Row
+.digit-selector-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+    justify-content: center;
+}
+
+.digit-selector {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #8899aa;
+    border: 1px solid #2a4060;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #0d1b2a;
+
+    &:hover {
+        border-color: #4A6BFF;
+        color: #fff;
+    }
+
+    &--active {
+        border-color: #FF1744;
+        color: #fff;
+        background: rgba(255, 23, 68, 0.15);
+    }
+}
+
+// Progress Bars
+.progress-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.progress-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.progress-label {
+    font-size: 11px;
+    font-weight: 700;
+    width: 50px;
+    text-transform: uppercase;
+
+    &.over-label { color: #4CAF50; }
+    &.under-label { color: #FF9800; }
+    &.match-label { color: #4A6BFF; }
+    &.differ-label { color: #9C27B0; }
+    &.even-label { color: #4CAF50; }
+    &.odd-label { color: #FF9800; }
+    &.rise-label { color: #4CAF50; }
+    &.fall-label { color: #FF1744; }
+}
+
+.progress-track {
+    flex: 1;
+    height: 8px;
+    background: #1a2d42;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+
+    &.over-fill { background: linear-gradient(90deg, #4CAF50, #66BB6A); }
+    &.under-fill { background: linear-gradient(90deg, #FF9800, #FFB74D); }
+    &.match-fill { background: linear-gradient(90deg, #4A6BFF, #64B5F6); }
+    &.differ-fill { background: linear-gradient(90deg, #9C27B0, #CE93D8); }
+    &.even-fill { background: linear-gradient(90deg, #4CAF50, #66BB6A); }
+    &.odd-fill { background: linear-gradient(90deg, #FF9800, #FFB74D); }
+    &.rise-fill { background: linear-gradient(90deg, #4CAF50, #66BB6A); }
+    &.fall-fill { background: linear-gradient(90deg, #FF1744, #FF5252); }
+}
+
+.progress-value {
+    font-size: 12px;
+    font-weight: 700;
+    width: 50px;
+    text-align: right;
+    color: #fff;
+}
+
+// Tick History
+.tick-history {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.tick-marker {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+
+    &--over { background: #FF9800; }
+    &--under { background: #4CAF50; }
+    &--match { background: #4A6BFF; }
+    &--differ { background: #9C27B0; }
+    &--even { background: #4CAF50; }
+    &--odd { background: #FF9800; }
+    &--rise { background: #4CAF50; }
+    &--fall { background: #FF1744; }
+}
+
+.tick-more {
+    font-size: 11px;
+    color: #8899aa;
+    padding: 4px 8px;
+    border: 1px solid #2a4060;
+    border-radius: 4px;
+    cursor: pointer;
+
+    &:hover {
+        border-color: #4A6BFF;
+        color: #fff;
+    }
+}
+
+// Scanner View
+.scanner-view {
+    padding: 20px;
+    text-align: center;
+}
+
+.scanner-placeholder {
+    color: #8899aa;
+    font-size: 14px;
+    line-height: 1.6;
+
+    .scanner-hint {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #4A6BFF;
+    }
+}

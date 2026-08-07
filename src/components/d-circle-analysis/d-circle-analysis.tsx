@@ -7,48 +7,16 @@ import './d-circle-analysis.scss';
 
 // Available synthetic index markets
 const MARKET_OPTIONS = [
-    { value: 'R_100', label: 'Volatility 100 (1s) Index' },
-    { value: 'R_10', label: 'Volatility 10 (1s) Index' },
-    { value: 'R_25', label: 'Volatility 25 (1s) Index' },
-    { value: 'R_50', label: 'Volatility 50 (1s) Index' },
-    { value: 'R_75', label: 'Volatility 75 (1s) Index' },
+    { value: 'R_10', label: 'Volatility 10 Index' },
+    { value: 'R_25', label: 'Volatility 25 Index' },
+    { value: 'R_50', label: 'Volatility 50 Index' },
+    { value: 'R_75', label: 'Volatility 75 Index' },
     { value: 'R_100', label: 'Volatility 100 Index' },
-    { value: '1HZ100V', label: 'Volatility 100 (1s) Index' },
     { value: '1HZ10V', label: 'Volatility 10 (1s) Index' },
     { value: '1HZ25V', label: 'Volatility 25 (1s) Index' },
     { value: '1HZ50V', label: 'Volatility 50 (1s) Index' },
     { value: '1HZ75V', label: 'Volatility 75 (1s) Index' },
-];
-
-// Colors for digit circles (matching screenshot)
-const DIGIT_COLORS = [
-    '#4A6BFF', // 0 - blue
-    '#4A6BFF', // 1 - blue
-    '#4A6BFF', // 2 - blue
-    '#4A6BFF', // 3 - blue
-    '#4CAF50', // 4 - green
-    '#FFC107', // 5 - yellow/orange
-    '#FF5722', // 6 - orange/red
-    '#4CAF50', // 7 - green
-    '#FF1744', // 8 - red (highlighted)
-    '#4A6BFF', // 9 - blue
-];
-
-// Digit circle sizes for visual hierarchy (matching screenshot)
-const DIGIT_SIZES = [100, 130, 160, 130, 100, 70, 70, 70, 130, 70];
-
-// Ring colors matching the screenshot
-const RING_COLORS = [
-    '#4A6BFF', // 0
-    '#4A6BFF', // 1
-    '#4A6BFF', // 2
-    '#4A6BFF', // 3
-    '#4CAF50', // 4
-    '#FFC107', // 5
-    '#FF9800', // 6
-    '#4CAF50', // 7
-    '#FF1744', // 8
-    '#4A6BFF', // 9
+    { value: '1HZ100V', label: 'Volatility 100 (1s) Index' },
 ];
 
 type TickData = {
@@ -60,27 +28,46 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
     digitPercentages,
     lastDigit,
 }) => {
+    // Sizes matching the screenshot: 4 has the largest circle, 0 and 8 are prominent
+    const sizeMap: Record<number, number> = {
+        0: 70,
+        1: 80,
+        2: 85,
+        3: 80,
+        4: 95,
+        5: 70,
+        6: 70,
+        7: 70,
+        8: 85,
+        9: 70,
+    };
+
+    // Ring colors matching the screenshot
+    const colorMap: Record<number, string> = {
+        0: '#4A6BFF',
+        1: '#4A6BFF',
+        2: '#4A6BFF',
+        3: '#4A6BFF',
+        4: '#4CAF50',
+        5: '#FF9800',
+        6: '#FF9800',
+        7: '#4CAF50',
+        8: '#FF1744',
+        9: '#4A6BFF',
+    };
+
     return (
         <div className='digits-circles-container'>
-            {/* Top row: 0-4 */}
-            <div className='digits-row top-row'>
+            <div className='digits-row'>
                 {[0, 1, 2, 3, 4].map((digit) => (
-                    <div
-                        key={digit}
-                        className={classNames('digit-circle', {
-                            'digit-circle--active': digit === lastDigit,
-                            'digit-circle--highlighted': digit === lastDigit,
-                        })}
-                        style={{
-                            width: `${DIGIT_SIZES[digit]}px`,
-                            height: `${DIGIT_SIZES[digit]}px`,
-                        }}
-                    >
+                    <div key={digit} className='digit-circle-wrapper' style={{ width: sizeMap[digit], height: sizeMap[digit] }}>
                         <div
-                            className='digit-ring'
+                            className={classNames('digit-ring', {
+                                'digit-ring--active': digit === lastDigit,
+                            })}
                             style={{
-                                borderColor: digit === lastDigit ? '#FF1744' : RING_COLORS[digit],
-                                borderWidth: digit === lastDigit ? '4px' : '2px',
+                                borderColor: digit === lastDigit ? '#FF1744' : colorMap[digit],
+                                borderWidth: digit === lastDigit ? '3px' : '2px',
                             }}
                         >
                             <span className='digit-value'>{digit}</span>
@@ -89,24 +76,16 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
                     </div>
                 ))}
             </div>
-            {/* Bottom row: 5-9 */}
-            <div className='digits-row bottom-row'>
+            <div className='digits-row'>
                 {[5, 6, 7, 8, 9].map((digit) => (
-                    <div
-                        key={digit}
-                        className={classNames('digit-circle', {
-                            'digit-circle--active': digit === lastDigit,
-                        })}
-                        style={{
-                            width: `${DIGIT_SIZES[digit]}px`,
-                            height: `${DIGIT_SIZES[digit]}px`,
-                        }}
-                    >
+                    <div key={digit} className='digit-circle-wrapper' style={{ width: sizeMap[digit], height: sizeMap[digit] }}>
                         <div
-                            className='digit-ring'
+                            className={classNames('digit-ring', {
+                                'digit-ring--active': digit === lastDigit,
+                            })}
                             style={{
-                                borderColor: digit === lastDigit ? '#FF1744' : RING_COLORS[digit],
-                                borderWidth: digit === lastDigit ? '4px' : '2px',
+                                borderColor: digit === lastDigit ? '#FF1744' : colorMap[digit],
+                                borderWidth: digit === lastDigit ? '3px' : '2px',
                             }}
                         >
                             <span className='digit-value'>{digit}</span>
@@ -122,78 +101,61 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
 const OverUnderSection: React.FC<{
     digitPercentages: number[];
     tickHistory: string[];
-    suggestedDigit: number;
-}> = ({ digitPercentages, tickHistory, suggestedDigit }) => {
-    const [threshold, setThreshold] = useState(5);
-    const overPercent = digitPercentages.slice(threshold + 1).reduce((sum, p) => sum + p, 0);
-    const underPercent = digitPercentages.slice(0, threshold).reduce((sum, p) => sum + p, 0);
+}> = ({ digitPercentages, tickHistory }) => {
+    const [threshold, setThreshold] = useState(4);
+    const overPercent = digitPercentages.slice(threshold + 1).reduce((sum, p) => sum + (p || 0), 0);
+    const underPercent = digitPercentages.slice(0, threshold).reduce((sum, p) => sum + (p || 0), 0);
 
-    // Count occurrences in recent history
-    const recentTicks = tickHistory.slice(0, 10);
-    const overCount = recentTicks.filter(d => parseInt(d) > threshold).length;
-    const underCount = recentTicks.filter(d => parseInt(d) < threshold).length;
+    const recentTicks = tickHistory.slice(0, 12);
 
     return (
         <div className='analysis-section'>
             <div className='analysis-header'>
                 <h3 className='analysis-title'>OVER / UNDER</h3>
-                <span className='analysis-suggestion'>
-                    {underPercent > overPercent ? `${Math.round(underPercent / overPercent || 0)}x Under` : `${Math.round(overPercent / underPercent || 0)}x Over`}
+                <span className='analysis-suggestion under-suggestion'>
+                    {underPercent > overPercent ? `${Math.max(1, Math.round(underPercent / Math.max(1, overPercent)))}x Under` : `${Math.max(1, Math.round(overPercent / Math.max(1, underPercent)))}x Over`}
                 </span>
             </div>
-            {/* Digit selector row */}
             <div className='digit-selector-row'>
                 {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
                     <div
                         key={d}
-                        className={classNames('digit-selector', {
-                            'digit-selector--active': d === threshold,
-                        })}
+                        className={classNames('digit-selector', { 'digit-selector--active': d === threshold })}
                         onClick={() => setThreshold(d)}
                     >
                         {d}
                     </div>
                 ))}
             </div>
-            {/* Progress bars */}
             <div className='progress-bars'>
                 <div className='progress-row'>
                     <span className='progress-label over-label'>OVER</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill over-fill'
-                            style={{ width: `${overPercent}%` }}
-                        />
+                        <div className='progress-fill over-fill' style={{ width: `${overPercent}%` }} />
                     </div>
                     <span className='progress-value'>{overPercent.toFixed(1)}%</span>
                 </div>
                 <div className='progress-row'>
                     <span className='progress-label under-label'>UNDER</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill under-fill'
-                            style={{ width: `${underPercent}%` }}
-                        />
+                        <div className='progress-fill under-fill' style={{ width: `${underPercent}%` }} />
                     </div>
                     <span className='progress-value'>{underPercent.toFixed(1)}%</span>
                 </div>
             </div>
-            {/* Tick history */}
             <div className='tick-history'>
                 {recentTicks.map((tick, idx) => (
                     <div
                         key={idx}
                         className={classNames('tick-marker', {
-                            'tick-marker--over': parseInt(tick) >= threshold,
-                            'tick-marker--under': parseInt(tick) < threshold,
+                            'tick-marker--over': parseInt(tick) > threshold,
+                            'tick-marker--under': parseInt(tick) <= threshold,
                         })}
                     >
-                        {parseInt(tick) >= threshold ? 'O' : 'U'}
+                        {parseInt(tick) > threshold ? 'O' : 'U'}
                     </div>
                 ))}
-                {tickHistory.length > 10 && (
-                    <div className='tick-more'>+ More</div>
-                )}
+                {tickHistory.length > 12 && <div className='tick-more'>+ More</div>}
             </div>
         </div>
     );
@@ -207,54 +169,43 @@ const MatchDifferSection: React.FC<{
     const matchPercent = digitPercentages[referenceDigit] || 0;
     const differPercent = 100 - matchPercent;
 
-    const recentTicks = tickHistory.slice(0, 10);
+    const recentTicks = tickHistory.slice(0, 12);
 
     return (
         <div className='analysis-section'>
             <div className='analysis-header'>
                 <h3 className='analysis-title'>MATCH / DIFFER</h3>
                 <span className='analysis-suggestion differ-suggestion'>
-                    {differPercent > matchPercent ? `${Math.round(differPercent / matchPercent || 1)}x Differ` : `${Math.round(matchPercent / differPercent || 1)}x Match`}
+                    {differPercent > matchPercent ? `${Math.max(1, Math.round(differPercent / Math.max(1, matchPercent)))}x Differ` : `${Math.max(1, Math.round(matchPercent / Math.max(1, differPercent)))}x Match`}
                 </span>
             </div>
-            {/* Digit selector row */}
             <div className='digit-selector-row'>
                 {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
                     <div
                         key={d}
-                        className={classNames('digit-selector', {
-                            'digit-selector--active': d === referenceDigit,
-                        })}
+                        className={classNames('digit-selector', { 'digit-selector--active': d === referenceDigit })}
                         onClick={() => setReferenceDigit(d)}
                     >
                         {d}
                     </div>
                 ))}
             </div>
-            {/* Progress bars */}
             <div className='progress-bars'>
                 <div className='progress-row'>
                     <span className='progress-label match-label'>MATCH</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill match-fill'
-                            style={{ width: `${matchPercent}%` }}
-                        />
+                        <div className='progress-fill match-fill' style={{ width: `${matchPercent}%` }} />
                     </div>
                     <span className='progress-value'>{matchPercent.toFixed(1)}%</span>
                 </div>
                 <div className='progress-row'>
                     <span className='progress-label differ-label'>DIFFER</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill differ-fill'
-                            style={{ width: `${differPercent}%` }}
-                        />
+                        <div className='progress-fill differ-fill' style={{ width: `${differPercent}%` }} />
                     </div>
                     <span className='progress-value'>{differPercent.toFixed(1)}%</span>
                 </div>
             </div>
-            {/* Tick history */}
             <div className='tick-history'>
                 {recentTicks.map((tick, idx) => (
                     <div
@@ -267,9 +218,7 @@ const MatchDifferSection: React.FC<{
                         {parseInt(tick) === referenceDigit ? 'M' : 'D'}
                     </div>
                 ))}
-                {tickHistory.length > 10 && (
-                    <div className='tick-more'>+ More</div>
-                )}
+                {tickHistory.length > 12 && <div className='tick-more'>+ More</div>}
             </div>
         </div>
     );
@@ -282,70 +231,56 @@ const EvenOddSection: React.FC<{ digitPercentages: number[]; tickHistory: string
     const evenPercent = [0, 2, 4, 6, 8].reduce((sum, d) => sum + (digitPercentages[d] || 0), 0);
     const oddPercent = [1, 3, 5, 7, 9].reduce((sum, d) => sum + (digitPercentages[d] || 0), 0);
 
-    const recentTicks = tickHistory.slice(0, 10);
+    const recentTicks = tickHistory.slice(0, 12);
 
     return (
         <div className='analysis-section'>
             <div className='analysis-header'>
                 <h3 className='analysis-title'>EVEN / ODD</h3>
                 <span className='analysis-suggestion even-odd-suggestion'>
-                    {evenPercent > oddPercent ? `${Math.round(evenPercent / oddPercent || 1)}x Even` : `${Math.round(oddPercent / evenPercent || 1)}x Odd`}
+                    {evenPercent > oddPercent ? `${Math.max(1, Math.round(evenPercent / Math.max(1, oddPercent)))}x Even` : `${Math.max(1, Math.round(oddPercent / Math.max(1, evenPercent)))}x Odd`}
                 </span>
             </div>
-            {/* Progress bars */}
             <div className='progress-bars'>
                 <div className='progress-row'>
                     <span className='progress-label even-label'>EVEN</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill even-fill'
-                            style={{ width: `${evenPercent}%` }}
-                        />
+                        <div className='progress-fill even-fill' style={{ width: `${evenPercent}%` }} />
                     </div>
                     <span className='progress-value'>{evenPercent.toFixed(1)}%</span>
                 </div>
                 <div className='progress-row'>
                     <span className='progress-label odd-label'>ODD</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill odd-fill'
-                            style={{ width: `${oddPercent}%` }}
-                        />
+                        <div className='progress-fill odd-fill' style={{ width: `${oddPercent}%` }} />
                     </div>
                     <span className='progress-value'>{oddPercent.toFixed(1)}%</span>
                 </div>
             </div>
-            {/* Tick history */}
             <div className='tick-history'>
                 {recentTicks.map((tick, idx) => {
                     const isEven = parseInt(tick) % 2 === 0;
                     return (
-                        <div
-                            key={idx}
-                            className={classNames('tick-marker', {
-                                'tick-marker--even': isEven,
-                                'tick-marker--odd': !isEven,
-                            })}
-                        >
+                        <div key={idx} className={classNames('tick-marker', { 'tick-marker--even': isEven, 'tick-marker--odd': !isEven })}>
                             {isEven ? 'E' : 'O'}
                         </div>
                     );
                 })}
-                {tickHistory.length > 10 && (
-                    <div className='tick-more'>+ More</div>
-                )}
+                {tickHistory.length > 12 && <div className='tick-more'>+ More</div>}
             </div>
         </div>
     );
 };
 
 const RiseFallSection: React.FC<{ ticks: TickData[] }> = ({ ticks }) => {
-    const riseCount = ticks.length > 1
-        ? ticks.slice(1).filter((t, i) => parseFloat(t.quote) > parseFloat(ticks[i].quote)).length
-        : 0;
-    const fallCount = ticks.length > 1
-        ? ticks.slice(1).filter((t, i) => parseFloat(t.quote) < parseFloat(ticks[i].quote)).length
-        : 0;
+    let riseCount = 0;
+    let fallCount = 0;
+
+    for (let i = 1; i < ticks.length; i++) {
+        if (parseFloat(ticks[i].quote) > parseFloat(ticks[i - 1].quote)) riseCount++;
+        else if (parseFloat(ticks[i].quote) < parseFloat(ticks[i - 1].quote)) fallCount++;
+    }
+
     const total = riseCount + fallCount || 1;
     const risePercent = (riseCount / total) * 100;
     const fallPercent = (fallCount / total) * 100;
@@ -357,54 +292,38 @@ const RiseFallSection: React.FC<{ ticks: TickData[] }> = ({ ticks }) => {
             <div className='analysis-header'>
                 <h3 className='analysis-title'>RISE / FALL</h3>
                 <span className='analysis-suggestion rise-fall-suggestion'>
-                    {risePercent > fallPercent ? `${Math.round(risePercent / fallPercent || 1)}x Rise` : `${Math.round(fallPercent / risePercent || 1)}x Fall`}
+                    {risePercent > fallPercent ? `${Math.max(1, Math.round(risePercent / Math.max(1, fallPercent)))}x Rise` : `${Math.max(1, Math.round(fallPercent / Math.max(1, risePercent)))}x Fall`}
                 </span>
             </div>
-            {/* Progress bars */}
             <div className='progress-bars'>
                 <div className='progress-row'>
                     <span className='progress-label rise-label'>RISE</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill rise-fill'
-                            style={{ width: `${risePercent}%` }}
-                        />
+                        <div className='progress-fill rise-fill' style={{ width: `${risePercent}%` }} />
                     </div>
                     <span className='progress-value'>{risePercent.toFixed(1)}%</span>
                 </div>
                 <div className='progress-row'>
                     <span className='progress-label fall-label'>FALL</span>
                     <div className='progress-track'>
-                        <div
-                            className='progress-fill fall-fill'
-                            style={{ width: `${fallPercent}%` }}
-                        />
+                        <div className='progress-fill fall-fill' style={{ width: `${fallPercent}%` }} />
                     </div>
                     <span className='progress-value'>{fallPercent.toFixed(1)}%</span>
                 </div>
             </div>
-            {/* Tick history */}
             <div className='tick-history'>
                 {recentTicks.map((tick, idx) => {
                     if (idx === 0) return null;
                     const prevQuote = parseFloat(recentTicks[idx - 1].quote);
                     const currQuote = parseFloat(tick.quote);
-                    const isRise = currQuote > prevQuote;
+                    const isRise = currQuote >= prevQuote;
                     return (
-                        <div
-                            key={idx}
-                            className={classNames('tick-marker', {
-                                'tick-marker--rise': isRise,
-                                'tick-marker--fall': !isRise,
-                            })}
-                        >
+                        <div key={idx} className={classNames('tick-marker', { 'tick-marker--rise': isRise, 'tick-marker--fall': !isRise })}>
                             {isRise ? 'R' : 'F'}
                         </div>
                     );
                 })}
-                {ticks.length > 10 && (
-                    <div className='tick-more'>+ More</div>
-                )}
+                {ticks.length > 10 && <div className='tick-more'>+ More</div>}
             </div>
         </div>
     );
@@ -413,7 +332,7 @@ const RiseFallSection: React.FC<{ ticks: TickData[] }> = ({ ticks }) => {
 const DCircleAnalysis: React.FC = () => {
     const { run_panel, client } = useStore();
     const [activeTab, setActiveTab] = useState<'circles' | 'scanner'>('circles');
-    const [selectedMarket, setSelectedMarket] = useState('R_100');
+    const [selectedMarket, setSelectedMarket] = useState('1HZ100V');
     const [tickCount, setTickCount] = useState(1000);
     const [ticks, setTicks] = useState<TickData[]>([]);
     const [livePrice, setLivePrice] = useState<string>('--');
@@ -462,13 +381,10 @@ const DCircleAnalysis: React.FC = () => {
 
         setIsLoading(true);
         try {
-            // Forget previous subscription
-            if (subscriptionIdRef.current) {
+            if (subscriptionIdRef.current && api_base.api) {
                 try {
-                    await api_base.api?.forget(subscriptionIdRef.current);
-                } catch (e) {
-                    // Ignore forget errors
-                }
+                    await api_base.api.forget(subscriptionIdRef.current);
+                } catch (e) {}
                 subscriptionIdRef.current = null;
             }
 
@@ -480,22 +396,25 @@ const DCircleAnalysis: React.FC = () => {
                 style: 'ticks',
             });
 
-            if (response?.ticks_history) {
-                const tickData: TickData[] = (response.ticks_history as any[]).map((t: any) => ({
-                    quote: String(t.quote),
-                    epoch: t.epoch,
-                }));
-                ticksArrayRef.current = tickData;
-                analyzeDigits(tickData);
-                setIsConnected(true);
-            } else if (response?.tick) {
-                const tickData: TickData[] = [{
-                    quote: String((response.tick as any).quote),
-                    epoch: (response.tick as any).epoch,
-                }];
-                ticksArrayRef.current = tickData;
-                analyzeDigits(tickData);
-                setIsConnected(true);
+            if (response) {
+                const resp = response as any;
+                let tickData: TickData[] = [];
+
+                if (resp.ticks_history && Array.isArray(resp.ticks_history)) {
+                    tickData = resp.ticks_history.map((t: any) => ({
+                        quote: String(t.quote),
+                        epoch: t.epoch,
+                    }));
+                } else if (resp.tick) {
+                    tickData = [{ quote: String(resp.tick.quote), epoch: resp.tick.epoch }];
+                    subscriptionIdRef.current = resp.tick.id || null;
+                }
+
+                if (tickData.length > 0) {
+                    ticksArrayRef.current = tickData;
+                    analyzeDigits(tickData);
+                    setIsConnected(true);
+                }
             }
         } catch (error) {
             console.error('Error fetching ticks:', error);
@@ -516,12 +435,13 @@ const DCircleAnalysis: React.FC = () => {
                     quote: String(data.tick.quote),
                     epoch: data.tick.epoch,
                 };
-                subscriptionIdRef.current = data.tick.id || null;
 
-                // Update the ticks array
+                if (data.tick.id) {
+                    subscriptionIdRef.current = data.tick.id;
+                }
+
                 const prevTicks = ticksArrayRef.current;
                 const updatedTicks = [...prevTicks, newTick];
-                // Keep only the last tickCount ticks
                 if (updatedTicks.length > tickCount) {
                     updatedTicks.splice(0, updatedTicks.length - tickCount);
                 }
@@ -532,8 +452,8 @@ const DCircleAnalysis: React.FC = () => {
 
         return () => {
             messageSubscription.unsubscribe();
-            if (subscriptionIdRef.current) {
-                api_base.api?.forget(subscriptionIdRef.current).catch(() => {});
+            if (subscriptionIdRef.current && api_base.api) {
+                api_base.api.forget(subscriptionIdRef.current).catch(() => {});
             }
         };
     }, [selectedMarket, tickCount, client.is_logged_in, fetchTicks, analyzeDigits]);
@@ -550,17 +470,13 @@ const DCircleAnalysis: React.FC = () => {
             {/* Tab Header */}
             <div className='d-circle-tabs'>
                 <button
-                    className={classNames('d-circle-tab', {
-                        'd-circle-tab--active': activeTab === 'circles',
-                    })}
+                    className={classNames('d-circle-tab', { 'd-circle-tab--active': activeTab === 'circles' })}
                     onClick={() => setActiveTab('circles')}
                 >
                     Circles
                 </button>
                 <button
-                    className={classNames('d-circle-tab', {
-                        'd-circle-tab--active': activeTab === 'scanner',
-                    })}
+                    className={classNames('d-circle-tab', { 'd-circle-tab--active': activeTab === 'scanner' })}
                     onClick={() => setActiveTab('scanner')}
                 >
                     Scanner
@@ -569,11 +485,7 @@ const DCircleAnalysis: React.FC = () => {
 
             {/* Controls Row */}
             <div className='d-circle-controls'>
-                <select
-                    className='market-select'
-                    value={selectedMarket}
-                    onChange={(e) => setSelectedMarket(e.target.value)}
-                >
+                <select className='market-select' value={selectedMarket} onChange={(e) => setSelectedMarket(e.target.value)}>
                     {MARKET_OPTIONS.map((market) => (
                         <option key={market.value} value={market.value}>
                             {market.label}
@@ -608,38 +520,33 @@ const DCircleAnalysis: React.FC = () => {
                     Waiting for market data...
                 </div>
             )}
+            {isLoading && (
+                <div className='loading-indicator'>Loading ticks...</div>
+            )}
 
             {activeTab === 'circles' ? (
                 <>
-                    {/* Digit Circles */}
-                    <DigitsCircles
-                        digitPercentages={digitPercentages}
-                        lastDigit={lastDigit}
-                    />
+                    <DigitsCircles digitPercentages={digitPercentages} lastDigit={lastDigit} />
 
-                    {/* Analysis Sections */}
                     <div className='analysis-container'>
-                        <OverUnderSection
-                            digitPercentages={digitPercentages}
-                            tickHistory={tickHistory}
-                            suggestedDigit={5}
-                        />
-                        <MatchDifferSection
-                            digitPercentages={digitPercentages}
-                            tickHistory={tickHistory}
-                        />
-                        <EvenOddSection
-                            digitPercentages={digitPercentages}
-                            tickHistory={tickHistory}
-                        />
+                        <OverUnderSection digitPercentages={digitPercentages} tickHistory={tickHistory} />
+                        <MatchDifferSection digitPercentages={digitPercentages} tickHistory={tickHistory} />
+                        <EvenOddSection digitPercentages={digitPercentages} tickHistory={tickHistory} />
                         <RiseFallSection ticks={ticks} />
                     </div>
                 </>
             ) : (
                 <div className='scanner-view'>
-                    <div className='scanner-placeholder'>
-                        <p>Scanner mode will analyze multiple markets simultaneously.</p>
-                        <p className='scanner-hint'>Switch to "Circles" for detailed digit analysis.</p>
+                    <div className='scanner-grid'>
+                        {MARKET_OPTIONS.map((market) => (
+                            <div key={market.value} className='scanner-item'>
+                                <span className='scanner-market'>{market.label}</span>
+                                <div className='scanner-trend'>
+                                    <span className='scanner-trend-up'>▲</span>
+                                    <span className='scanner-trend-down'>▼</span>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

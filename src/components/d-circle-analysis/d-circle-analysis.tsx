@@ -28,19 +28,8 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
     digitPercentages,
     lastDigit,
 }) => {
-    // Sizes matching the screenshot: 4 has the largest circle, 0 and 8 are prominent
-    const sizeMap: Record<number, number> = {
-        0: 70,
-        1: 80,
-        2: 85,
-        3: 80,
-        4: 95,
-        5: 70,
-        6: 70,
-        7: 70,
-        8: 85,
-        9: 70,
-    };
+    // Uniform size for all digit circles
+    const CIRCLE_SIZE = 64;
 
     // Ring colors matching the screenshot
     const colorMap: Record<number, string> = {
@@ -58,9 +47,14 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
 
     return (
         <div className='digits-circles-container'>
+            {/* Cursor indicator showing current highlighted digit */}
+            <div className='digit-cursor-indicator'>
+                <span className='cursor-label'>CURRENT DIGIT:</span>
+                <span className='cursor-value'>{lastDigit}</span>
+            </div>
             <div className='digits-row'>
                 {[0, 1, 2, 3, 4].map((digit) => (
-                    <div key={digit} className='digit-circle-wrapper' style={{ width: sizeMap[digit], height: sizeMap[digit] }}>
+                    <div key={digit} className='digit-circle-wrapper' style={{ width: CIRCLE_SIZE, height: CIRCLE_SIZE }}>
                         <div
                             className={classNames('digit-ring', {
                                 'digit-ring--active': digit === lastDigit,
@@ -78,7 +72,7 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
             </div>
             <div className='digits-row'>
                 {[5, 6, 7, 8, 9].map((digit) => (
-                    <div key={digit} className='digit-circle-wrapper' style={{ width: sizeMap[digit], height: sizeMap[digit] }}>
+                    <div key={digit} className='digit-circle-wrapper' style={{ width: CIRCLE_SIZE, height: CIRCLE_SIZE }}>
                         <div
                             className={classNames('digit-ring', {
                                 'digit-ring--active': digit === lastDigit,

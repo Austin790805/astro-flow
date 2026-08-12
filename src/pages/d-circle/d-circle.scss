@@ -1,0 +1,26 @@
+.d-circle {
+    position: absolute;
+    top: 6.6rem;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    z-index: -1;
+    background: #0d1b2a;
+    height: var(--tab-content-height);
+    overflow-y: auto;
+}
+
+.d-circle--active {
+    z-index: 1;
+}
+
+.d-circle--inactive {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .d-circle {
+        top: 5.6rem;
+        width: 100vw;
+        height: var(--tab-content-height-mobile);
+    }
+}

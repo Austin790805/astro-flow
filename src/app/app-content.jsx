@@ -21,6 +21,7 @@ import Audio from '../components/audio';
 import BlocklyLoading from '../components/blockly-loading';
 import BotStopped from '../components/bot-stopped';
 import BotBuilder from '../pages/bot-builder';
+import DCircle from '../pages/d-circle';
 import Main from '../pages/main';
 import './app.scss';
 import 'react-toastify/dist/ReactToastify.css';
@@ -198,6 +199,7 @@ const AppContent = observer(() => {
                             <Audio />
                             <Main />
                             <BotBuilder />
+                            <DCircle />
                             <BotStopped />
                             <TransactionDetailsModal />
                             <ToastContainer limit={3} draggable={false} />

@@ -23,7 +23,6 @@ import BotStopped from '../components/bot-stopped';
 import BotBuilder from '../pages/bot-builder';
 import DCircle from '../pages/d-circle';
 import Main from '../pages/main';
-import SplashWrapper from '@/components/splash-wrapper';
 import './app.scss';
 import 'react-toastify/dist/ReactToastify.css';
 import '../components/bot-notification/bot-notification.scss';
@@ -195,18 +194,16 @@ const AppContent = observer(() => {
             ) : (
                 <AuthLoadingWrapper>
                     <ThemeProvider theme={is_dark_mode_on ? 'dark' : 'light'}>
-                        <SplashWrapper>
-                            <BlocklyLoading />
-                            <div className='bot-dashboard bot' data-testid='dt_bot_dashboard'>
-                                <Audio />
-                                <Main />
-                                <BotBuilder />
-                                <DCircle />
-                                <BotStopped />
-                                <TransactionDetailsModal />
-                                <ToastContainer limit={3} draggable={false} />
-                            </div>
-                        </SplashWrapper>
+                        <BlocklyLoading />
+                        <div className='bot-dashboard bot' data-testid='dt_bot_dashboard'>
+                            <Audio />
+                            <Main />
+                            <BotBuilder />
+                            <DCircle />
+                            <BotStopped />
+                            <TransactionDetailsModal />
+                            <ToastContainer limit={3} draggable={false} />
+                        </div>
                     </ThemeProvider>
                 </AuthLoadingWrapper>
             )}

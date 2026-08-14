@@ -1,0 +1,371 @@
+.bulk-trader {
+    background: #0d1b2a;
+    border-radius: 12px;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #fff;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: #0d1b2a;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: #2a4060;
+        border-radius: 3px;
+    }
+}
+
+.bulk-trader-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+
+    .bulk-trader-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #fff;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+}
+
+// Controls
+.bulk-trader-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .control-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #8899aa;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .market-select,
+    .trade-type-select {
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #2a4060;
+        background: #1a2d42;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+
+        option {
+            background: #1a2d42;
+            color: #fff;
+        }
+    }
+
+    .ticks-input {
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #2a4060;
+        background: #1a2d42;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+    }
+}
+
+// Current Tick
+.current-tick {
+    text-align: center;
+    margin-bottom: 16px;
+
+    .current-tick-label {
+        display: block;
+        font-size: 11px;
+        font-weight: 700;
+        color: #8899aa;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 4px;
+    }
+
+    .current-tick-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: #FF6B35;
+        line-height: 1.2;
+    }
+}
+
+// Digit Circles
+.digit-circles-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.digit-circle {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 2px solid #2a4060;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #111d2e;
+    box-shadow: 0 0 8px rgba(74, 107, 255, 0.15);
+    transition: all 0.3s ease;
+
+    .digit-value {
+        font-size: 16px;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1;
+    }
+
+    .digit-pct {
+        font-size: 9px;
+        font-weight: 500;
+        color: #8899aa;
+        margin-top: 2px;
+    }
+
+    &--active {
+        border-color: #FF1744;
+        box-shadow: 0 0 12px rgba(255, 23, 68, 0.5);
+        animation: pulse-ring 1.5s ease-in-out infinite;
+    }
+}
+
+@keyframes pulse-ring {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.03); }
+}
+
+// Tick History
+.tick-history-row {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.tick-badge {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+
+    &--even { background: #00BFA5; }
+    &--odd { background: #FF1744; }
+}
+
+// Trade Controls (Stake, Trades)
+.trade-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+
+    .control-group {
+        flex: 1;
+    }
+
+    .small-input {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #2a4060;
+        background: #1a2d42;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+        width: 100%;
+    }
+}
+
+// Trade Buttons
+.trade-buttons {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.trade-btn {
+    flex: 1;
+    padding: 14px 16px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    transition: all 0.2s ease;
+
+    .trade-btn-label {
+        font-size: 16px;
+        font-weight: 700;
+    }
+
+    .trade-btn-pct {
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    &:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    &--even {
+        background: #00BFA5;
+        color: #fff;
+    }
+
+    &--odd {
+        background: #FF1744;
+        color: #fff;
+    }
+
+    &--over {
+        background: #4CAF50;
+        color: #fff;
+    }
+
+    &--under {
+        background: #FF9800;
+        color: #fff;
+    }
+
+    &--match {
+        background: #4A6BFF;
+        color: #fff;
+    }
+
+    &--diff {
+        background: #9C27B0;
+        color: #fff;
+    }
+
+    &--rise {
+        background: #4CAF50;
+        color: #fff;
+    }
+
+    &--fall {
+        background: #FF1744;
+        color: #fff;
+    }
+
+    &--running {
+        animation: pulse-btn 0.5s ease-in-out infinite alternate;
+    }
+}
+
+@keyframes pulse-btn {
+    from { opacity: 1; }
+    to { opacity: 0.7; }
+}
+
+// Stop Button
+.stop-btn {
+    width: 100%;
+    padding: 10px;
+    background: #FF1744;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+
+    &:hover {
+        background: #D50000;
+    }
+}
+
+// Stats
+.trade-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px;
+    background: #111d2e;
+    border-radius: 8px;
+    border: 1px solid #1a2d42;
+
+    .stat-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #8899aa;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: #fff;
+
+            &--win { color: #4CAF50; }
+            &--loss { color: #FF1744; }
+        }
+    }
+}
+
+// Warnings
+.bulk-trader-warning,
+.bulk-trader-loading {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.bulk-trader-warning {
+    background: rgba(255, 107, 53, 0.15);
+    color: #FF6B35;
+    border: 1px solid rgba(255, 107, 53, 0.3);
+}
+
+.bulk-trader-loading {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4CAF50;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}

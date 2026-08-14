@@ -32,13 +32,23 @@ type TickData = {
     epoch: number;
 };
 
+type TradeRecord = {
+    id: string;
+    contractType: string;
+    stake: number;
+    sellPrice: number;
+    profit: number;
+    status: 'won' | 'lost';
+    timestamp: number;
+};
+
 const BulkTrader: React.FC = () => {
     const { client } = useStore();
     const [selectedMarket, setSelectedMarket] = useState('1HZ100V');
     const [tradeType, setTradeType] = useState('evenodd');
     const [tickCount, setTickCount] = useState(1000);
-    const [stake, setStake] = useState('0.5');
-    const [numTrades, setNumTrades] = useState('1');
+    const [stake, setStake] = useState('5');
+    const [numTrades, setNumTrades] = useState('10');
     const [ticks, setTicks] = useState<TickData[]>([]);
     const [livePrice, setLivePrice] = useState<string>('--');
     const [digitPercentages, setDigitPercentages] = useState<number[]>(Array(10).fill(0));
@@ -46,17 +56,19 @@ const BulkTrader: React.FC = () => {
     const [lastDigit, setLastDigit] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
-    const [isRunning, setIsRunning] = useState(false);
+    const [isExecuting, setIsExecuting] = useState(false);
     const [totalStake, setTotalStake] = useState(0);
     const [totalPayout, setTotalPayout] = useState(0);
     const [wonTrades, setWonTrades] = useState(0);
     const [lostTrades, setLostTrades] = useState(0);
     const [tradesExecuted, setTradesExecuted] = useState(0);
+    const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
 
     const subscriptionIdRef = useRef<string | null>(null);
     const ticksArrayRef = useRef<TickData[]>([]);
-    const openContractsRef = useRef<Map<string, any>>(new Map());
-    const runIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const openContractsRef = useRef<Map<string, TradeRecord>>(new Map());
+    const batchContractIdsRef = useRef<string[]>([]);
+    const currentBatchRef = useRef<string[]>([]);
 
     const getLastDigit = useCallback((quote: string): number => {
         const quoteStr = quote.replace('.', '');
@@ -163,26 +175,56 @@ const BulkTrader: React.FC = () => {
                 analyzeDigits(updatedTicks);
             }
 
-            // Handle contract updates
+            // Handle contract updates - track results for trade history
             if (data?.msg_type === 'proposal_open_contract') {
                 const poc = data.proposal_open_contract;
                 if (poc && poc.contract_id) {
-                    const existing = openContractsRef.current.get(poc.contract_id);
-                    if (poc.is_sold) {
-                        if (existing) {
-                            const profit = parseFloat(poc.profit) || 0;
-                            setTotalPayout(prev => prev + parseFloat(poc.sell_price) || 0);
-                            if (profit > 0) {
-                                setWonTrades(prev => prev + 1);
-                            } else {
-                                setLostTrades(prev => prev + 1);
-                            }
-                        }
+                    const existingRecord = openContractsRef.current.get(poc.contract_id);
+                    if (poc.is_sold && existingRecord) {
+                        const sellPrice = parseFloat(poc.sell_price) || 0;
+                        const profit = parseFloat(poc.profit) || 0;
+
+                        // Update the trade record with result
+                        existingRecord.sellPrice = sellPrice;
+                        existingRecord.profit = profit;
+                        existingRecord.status = profit > 0 ? 'won' : 'lost';
+
+                        // Remove from open contracts
                         openContractsRef.current.delete(poc.contract_id);
-                    } else {
-                        openContractsRef.current.set(poc.contract_id, poc);
+
+                        // Update stats
+                        setTotalPayout(prev => prev + sellPrice);
+                        if (profit > 0) {
+                            setWonTrades(prev => prev + 1);
+                        } else {
+                            setLostTrades(prev => prev + 1);
+                        }
+                        setTradesExecuted(openContractsRef.current.size);
+
+                        // Check if batch is complete
+                        if (openContractsRef.current.size === 0 && currentBatchRef.current.length > 0) {
+                            // Batch complete - stop executing
+                            setIsExecuting(false);
+                            currentBatchRef.current = [];
+                        }
+                    } else if (!poc.is_sold && existingRecord) {
+                        // Still open
+                    } else if (!poc.is_sold && !existingRecord && currentBatchRef.current.includes(poc.contract_id)) {
+                        // Contract opened as part of current batch but not yet tracked
+                        // This shouldn't happen but handle it
+                    } else if (!poc.is_sold) {
+                        // New contract not part of our batch tracking - add it
+                        const record: TradeRecord = {
+                            id: poc.contract_id,
+                            contractType: poc.contract_type || '',
+                            stake: parseFloat(poc.buy_price) || 0,
+                            sellPrice: 0,
+                            profit: 0,
+                            status: 'won',
+                            timestamp: Date.now(),
+                        };
+                        openContractsRef.current.set(poc.contract_id, record);
                     }
-                    setTradesExecuted(openContractsRef.current.size);
                 }
             }
         });
@@ -202,15 +244,6 @@ const BulkTrader: React.FC = () => {
         }
     }, [selectedMarket, tickCount, client.is_logged_in, fetchTicks]);
 
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (runIntervalRef.current) {
-                clearInterval(runIntervalRef.current);
-            }
-        };
-    }, []);
-
     const getContractType = (tradeType: string, direction: string): string => {
         switch (tradeType) {
             case 'evenodd':
@@ -226,14 +259,22 @@ const BulkTrader: React.FC = () => {
         }
     };
 
-    const executeTrade = useCallback(async (contractType: string, direction: string) => {
+    const executeBatchTrade = useCallback(async (contractType: string, direction: string) => {
         if (!client.is_logged_in || !api_base.api) return;
 
-        const stakeAmount = parseFloat(stake);
+        const stakeAmount = parseFloat(stake) || 0.5;
         const numTradesInt = parseInt(numTrades) || 1;
+        const totalBatchStake = stakeAmount * numTradesInt;
+
+        setIsExecuting(true);
 
         try {
-            // Buy multiple contracts
+            const batchId = `batch-${Date.now()}`;
+            currentBatchRef.current = [];
+
+            // Buy all contracts simultaneously
+            const buyPromises: Promise<any>[] = [];
+
             for (let i = 0; i < numTradesInt; i++) {
                 const buyRequest: any = {
                     buy: 1,
@@ -255,52 +296,67 @@ const BulkTrader: React.FC = () => {
                     buyRequest.parameters.barrier = lastDigit.toString();
                 }
 
-                const response = await api_base.api.send(buyRequest);
-                if (response) {
-                    const resp = response as any;
-                    if (resp.buy) {
-                        // Subscribe to contract updates
-                        if (resp.buy.contract_id) {
-                            await api_base.api.send({
-                                proposal_open_contract: 1,
-                                subscribe: 1,
-                                contract_id: resp.buy.contract_id,
-                            });
-                        }
-                    }
-                }
-
-                // Small delay between trades
-                if (i < numTradesInt - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
+                buyPromises.push(api_base.api!.send(buyRequest));
             }
 
-            setTotalStake(prev => prev + stakeAmount * numTradesInt);
+            // Execute all buys
+            const responses = await Promise.all(buyPromises);
+
+            // Track all contracts in this batch
+            responses.forEach((response, idx) => {
+                const resp = response as any;
+                if (resp?.buy?.contract_id) {
+                    const contractId = resp.buy.contract_id;
+                    currentBatchRef.current.push(contractId);
+
+                    // Create trade record
+                    const record: TradeRecord = {
+                        id: contractId,
+                        contractType: contractType,
+                        stake: stakeAmount,
+                        sellPrice: 0,
+                        profit: 0,
+                        status: 'won',
+                        timestamp: Date.now(),
+                    };
+                    openContractsRef.current.set(contractId, record);
+
+                    // Subscribe to contract updates
+                    api_base.api!.send({
+                        proposal_open_contract: 1,
+                        subscribe: 1,
+                        contract_id: contractId,
+                    });
+                }
+            });
+
+            // Update total stake immediately
+            setTotalStake(prev => prev + totalBatchStake);
+            setTradesExecuted(openContractsRef.current.size);
+
         } catch (error) {
-            console.error('Error executing trade:', error);
+            console.error('Error executing batch trade:', error);
+            setIsExecuting(false);
         }
     }, [client.is_logged_in, client.currency, stake, numTrades, selectedMarket, tradeType, lastDigit]);
 
     const handleTradeClick = useCallback((direction: string) => {
-        if (isRunning) return;
-        setIsRunning(true);
+        if (isExecuting) return;
 
         const contractType = getContractType(tradeType, direction);
-        executeTrade(contractType, direction);
+        executeBatchTrade(contractType, direction);
+    }, [isExecuting, tradeType, executeBatchTrade]);
 
-        // Stop running after a short delay
-        setTimeout(() => {
-            setIsRunning(false);
-        }, 500);
-    }, [isRunning, tradeType, executeTrade]);
-
-    const handleStopTrading = () => {
-        setIsRunning(false);
-        if (runIntervalRef.current) {
-            clearInterval(runIntervalRef.current);
-            runIntervalRef.current = null;
-        }
+    const handleReset = () => {
+        // Reset all stats
+        setTotalStake(0);
+        setTotalPayout(0);
+        setWonTrades(0);
+        setLostTrades(0);
+        setTradesExecuted(0);
+        setTradeHistory([]);
+        openContractsRef.current.clear();
+        currentBatchRef.current = [];
     };
 
     // Calculate Even/Odd percentages
@@ -444,17 +500,17 @@ const BulkTrader: React.FC = () => {
                 {tradeType === 'evenodd' && (
                     <>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--even', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--even', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('even')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Even</span>
                             <span className='trade-btn-pct'>{evenPercentage.toFixed(2)}%</span>
                         </button>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--odd', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--odd', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('odd')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Odd</span>
                             <span className='trade-btn-pct'>{oddPercentage.toFixed(2)}%</span>
@@ -464,17 +520,17 @@ const BulkTrader: React.FC = () => {
                 {tradeType === 'overunder' && (
                     <>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--over', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--over', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('over')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Over {lastDigit}</span>
                             <span className='trade-btn-pct'>{digitPercentages.slice(lastDigit + 1).reduce((a, b) => a + b, 0).toFixed(2)}%</span>
                         </button>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--under', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--under', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('under')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Under {lastDigit}</span>
                             <span className='trade-btn-pct'>{digitPercentages.slice(0, lastDigit).reduce((a, b) => a + b, 0).toFixed(2)}%</span>
@@ -484,17 +540,17 @@ const BulkTrader: React.FC = () => {
                 {tradeType === 'matchdiff' && (
                     <>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--match', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--match', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('match')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Match {lastDigit}</span>
                             <span className='trade-btn-pct'>{digitPercentages[lastDigit]?.toFixed(2) || '0.00'}%</span>
                         </button>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--diff', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--diff', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('diff')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Differ {lastDigit}</span>
                             <span className='trade-btn-pct'>{(100 - (digitPercentages[lastDigit] || 0)).toFixed(2)}%</span>
@@ -504,17 +560,17 @@ const BulkTrader: React.FC = () => {
                 {tradeType === 'risefall' && (
                     <>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--rise', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--rise', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('rise')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Rise</span>
                             <span className='trade-btn-pct'>{risePercentage.toFixed(2)}%</span>
                         </button>
                         <button
-                            className={classNames('trade-btn', 'trade-btn--fall', { 'trade-btn--running': isRunning })}
+                            className={classNames('trade-btn', 'trade-btn--fall', { 'trade-btn--running': isExecuting })}
                             onClick={() => handleTradeClick('fall')}
-                            disabled={isRunning || !client.is_logged_in}
+                            disabled={isExecuting || !client.is_logged_in}
                         >
                             <span className='trade-btn-label'>Fall</span>
                             <span className='trade-btn-pct'>{fallPercentage.toFixed(2)}%</span>
@@ -522,13 +578,6 @@ const BulkTrader: React.FC = () => {
                     </>
                 )}
             </div>
-
-            {/* Stop Button */}
-            {isRunning && (
-                <button className='stop-btn' onClick={handleStopTrading}>
-                    ⬛ STOP
-                </button>
-            )}
 
             {/* Stats */}
             <div className='trade-stats'>
@@ -549,6 +598,31 @@ const BulkTrader: React.FC = () => {
                     <span className='stat-value stat-value--loss'>{lostTrades}</span>
                 </div>
             </div>
+
+            {/* Trade History */}
+            {tradeHistory.length > 0 && (
+                <div className='trade-history'>
+                    <div className='trade-history-header'>
+                        <h3 className='trade-history-title'>Trade History</h3>
+                        <button className='reset-btn' onClick={handleReset}>
+                            🔄 Reset
+                        </button>
+                    </div>
+                    <div className='trade-history-list'>
+                        {tradeHistory.map((trade, idx) => (
+                            <div key={trade.id} className={classNames('trade-history-item', { 'trade-history-item--won': trade.status === 'won', 'trade-history-item--lost': trade.status === 'lost' })}>
+                                <span className='trade-history-index'>#{idx + 1}</span>
+                                <span className='trade-history-type'>{trade.contractType}</span>
+                                <span className='trade-history-stake'>{trade.stake.toFixed(2)}</span>
+                                <span className='trade-history-profit'>{trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}</span>
+                                <span className={classNames('trade-history-status', { 'trade-history-status--won': trade.status === 'won', 'trade-history-status--lost': trade.status === 'lost' })}>
+                                    {trade.status === 'won' ? '✓' : '✗'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Warnings */}
             {!client.is_logged_in && (

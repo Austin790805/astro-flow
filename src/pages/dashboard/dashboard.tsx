@@ -44,7 +44,7 @@ const DashboardHero = () => {
     return (
         <div className='dashboard-hero'>
             <h2 className='dashboard-hero__greeting'>
-                Hello {activeLoginid || 'Trader'} <span className='dashboard-hero__wave'>👋</span>
+                Hello Trader <span className='dashboard-hero__wave'>👋</span>
             </h2>
             <h1 className='dashboard-hero__headline'>LET&apos;S PRINT SOME DOLLARS 💵💰</h1>
             <div className='dashboard-hero__quote-container'>

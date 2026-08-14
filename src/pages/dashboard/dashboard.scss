@@ -458,3 +458,58 @@
         margin-inline-start: 0.4rem;
     }
 }
+
+// --- Dashboard Hero: greeting, headline, rotating quotes ---
+.dashboard-hero {
+    text-align: center;
+    padding: 24px 12px 16px;
+    background: linear-gradient(180deg, #0a1628 0%, #0d1d33 60%, transparent 100%);
+    border-radius: 12px;
+    margin-bottom: 8px;
+
+    &__greeting {
+        font-size: 26px;
+        font-weight: 700;
+        color: #ffffff;
+        margin: 0 0 12px;
+        letter-spacing: 0.3px;
+    }
+
+    &__wave {
+        display: inline-block;
+        animation: dashboard-wave 2.4s ease-in-out infinite;
+        transform-origin: 70% 70%;
+    }
+
+    &__headline {
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: 1.2px;
+        margin: 0 0 16px;
+        color: #ffffff;
+    }
+
+    &__quote-container {
+        min-height: 26px;
+    }
+
+    &__quote {
+        font-size: 15px;
+        font-style: italic;
+        color: #a6c0e0;
+        margin: 0;
+        transition: opacity 0.3s ease;
+        opacity: 1;
+
+        &--fading {
+            opacity: 0;
+        }
+    }
+}
+
+@keyframes dashboard-wave {
+    0%, 60%, 100% { transform: rotate(0deg); }
+    10%, 30% { transform: rotate(14deg); }
+    20% { transform: rotate(-8deg); }
+    40% { transform: rotate(6deg); }
+}

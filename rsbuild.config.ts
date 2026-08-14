@@ -96,6 +96,10 @@ export default defineConfig({
     compress: true,
   },
   dev: { hmr: true },
+  output: {
+    // Force all CSS into a single main bundle to avoid async CSS loading issues
+    filenameHash: true,
+  },
   tools: {
     rspack: {
       module: {
@@ -106,6 +110,18 @@ export default defineConfig({
             use: 'raw-loader',
           },
         ],
+      },
+      optimization: {
+        splitChunks: {
+          cacheGroups: {
+            styles: {
+              name: 'index',
+              type: 'css/mini-extract',
+              chunks: 'all',
+              enforce: true,
+            },
+          },
+        },
       },
     },
   },

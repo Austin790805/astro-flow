@@ -191,7 +191,8 @@
         flex: 1;
     }
 
-    .small-input {
+    .small-input,
+    .direction-select {
         padding: 8px 10px;
         border-radius: 6px;
         border: 1px solid #2a4060;
@@ -201,6 +202,47 @@
         font-weight: 600;
         text-align: center;
         width: 100%;
+    }
+
+    .direction-select {
+        cursor: pointer;
+        appearance: auto;
+
+        option {
+            background: #1a2d42;
+            color: #fff;
+        }
+    }
+}
+
+// Start/Stop Button
+.bulk-trader-actions {
+    margin-bottom: 14px;
+}
+
+.start-btn {
+    width: 100%;
+    padding: 14px;
+    background: #00BFA5;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    &:hover:not(:disabled) {
+        background: #00A896;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 191, 165, 0.3);
     }
 }
 
@@ -404,10 +446,23 @@
         font-weight: 600;
     }
 
+    .trade-history-dir {
+        color: #4A6BFF;
+        font-weight: 600;
+        font-size: 10px;
+        text-transform: capitalize;
+        min-width: 40px;
+    }
+
     .trade-history-profit {
         font-weight: 700;
         font-size: 11px;
         color: #4CAF50;
+        min-width: 50px;
+        text-align: right;
+
+        &--positive { color: #4CAF50; }
+        &--negative { color: #FF1744; }
     }
 
     .trade-history-status {

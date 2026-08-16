@@ -4,8 +4,27 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
 import { api_base } from '@/external/bot-skeleton';
 import { useApiBase } from '@/hooks/useApiBase';
+import { connectionStatus$ } from '@/external/bot-skeleton/services/api/observables/connection-status-stream';
 import { getLastDigit, PIP_SIZE_BY_SYMBOL, formatQuote } from '@/utils/digit-analysis';
 import './speedbot.scss';
+
+const SEND_TIMEOUT_MS = 15000;
+
+// Wrap an api.send promise with a timeout — the Deriv API send() hangs forever
+// when the socket is reconnecting, so we force a rejection to allow retry logic.
+const sendWithTimeout = (promise: Promise<any>, ms: number = SEND_TIMEOUT_MS): Promise<any> =>
+    new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Market data request timed out')), ms);
+        Promise.resolve(promise)
+            .then((v) => {
+                clearTimeout(timer);
+                resolve(v);
+            })
+            .catch((e) => {
+                clearTimeout(timer);
+                reject(e);
+            });
+    });
 
 // All synthetic markets supported by the Speedbot
 const MARKET_OPTIONS = [
@@ -103,6 +122,7 @@ const Speedbot: React.FC = () => {
 
     const subscriptionIdRef = useRef<string | null>(null);
     const processedContractsRef = useRef<Set<string>>(new Set());
+    const connectionOpenRef = useRef(false);
     const lastTickTimeRef = useRef<number>(0);
     const resubscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -361,22 +381,29 @@ const Speedbot: React.FC = () => {
         const MAX_RETRIES = 5;
 
         const fetchTicks = async (retrying: boolean = false) => {
+            // Never hammer the socket while it is reconnecting; wait for the connection to open
+            if (!connectionOpenRef.current) {
+                setErrorMessage('Waiting for connection...');
+                return;
+            }
             try {
                 if (subscriptionIdRef.current) {
                     try {
-                        await (api_base.api as any).forget(subscriptionIdRef.current);
+                        await sendWithTimeout((api_base.api as any).forget(subscriptionIdRef.current), 8000);
                     } catch {
                         /* ignore */
                     }
                     subscriptionIdRef.current = null;
                 }
-                const response = await (api_base.api as any)?.send({
-                    ticks_history: selectedMarketRef.current,
-                    subscribe: 1,
-                    end: 'latest',
-                    count: 500,
-                    style: 'ticks',
-                });
+                const response = await sendWithTimeout(
+                    (api_base.api as any)?.send({
+                        ticks_history: selectedMarketRef.current,
+                        subscribe: 1,
+                        end: 'latest',
+                        count: 500,
+                        style: 'ticks',
+                    })
+                );
                 const resp = response as any;
 
                 // Handle API-level errors (e.g. rate limits) as retryable
@@ -407,25 +434,20 @@ const Speedbot: React.FC = () => {
                 }
                 startWatchdog();
             } catch (err: any) {
-                // Transient failure: back off and retry; never abort the run
-                const delay = Math.min(2000 * Math.pow(2, retryAttempt), 30000);
+                // Transient failure: back off and retry; never abort the run.
+                // If the socket is down, the retry timer waits for it to reopen instead of looping.
                 retryAttempt++;
                 console.warn('[Speedbot] tick stream error, retry', retryAttempt, err?.message);
-                if (retryAttempt <= MAX_RETRIES && !disposedRef.current) {
+                if (disposedRef.current) return;
+                const waitUntil =
+                    retryAttempt > MAX_RETRIES ? 10000 : Math.min(2000 * Math.pow(2, Math.min(retryAttempt, 5)), 30000);
+                if (retryAttempt > MAX_RETRIES) {
+                    setErrorMessage('Market data reconnecting — trades will resume automatically');
+                } else {
                     setErrorMessage(`Reconnecting market data... (attempt ${retryAttempt}/${MAX_RETRIES})`);
-                    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-                    retryTimerRef.current = setTimeout(() => fetchTicks(true), delay);
-                } else if (retryAttempt > MAX_RETRIES) {
-                    // Keep trying at a slower rate while the bot is running
-                    if (isRunningRef.current && !disposedRef.current) {
-                        setErrorMessage('Market data reconnecting — trades will resume automatically');
-                        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-                        retryTimerRef.current = setTimeout(() => {
-                            retryAttempt = 0;
-                            fetchTicks(true);
-                        }, 10000);
-                    }
                 }
+                if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                retryTimerRef.current = setTimeout(() => fetchTicks(true), waitUntil);
             }
         };
 
@@ -443,6 +465,22 @@ const Speedbot: React.FC = () => {
         };
 
         fetchTicks();
+
+        // Watch the connection: resubscribe immediately when it reopens, and pause retries while closed
+        const connectionSubscription = connectionStatus$.subscribe((status: any) => {
+            connectionOpenRef.current = status === 'opened';
+            if (status === 'opened' && !disposedRef.current) {
+                // Fresh (re)connection — resubscribe right away
+                if (retryTimerRef.current) {
+                    clearTimeout(retryTimerRef.current);
+                    retryTimerRef.current = null;
+                }
+                retryAttempt = 0;
+                setErrorMessage('');
+                fetchTicks(true);
+            }
+        });
+        connectionOpenRef.current = connectionStatus === 'opened';
 
         const contractSub = (api_base.api.send as any)({
             proposal_open_contract: 1,
@@ -483,6 +521,7 @@ const Speedbot: React.FC = () => {
         return () => {
             disposedRef.current = true;
             messageSubscription.unsubscribe();
+            connectionSubscription.unsubscribe();
             if (resubscribeTimerRef.current) {
                 clearInterval(resubscribeTimerRef.current);
                 resubscribeTimerRef.current = null;
@@ -495,7 +534,7 @@ const Speedbot: React.FC = () => {
                 (api_base.api as any)?.forget(subscriptionIdRef.current).catch(() => {});
             }
         };
-    }, [client.is_logged_in, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement]);
+    }, [client.is_logged_in, connectionStatus, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement]);
 
     // Keep refs synced with UI state
     useEffect(() => {

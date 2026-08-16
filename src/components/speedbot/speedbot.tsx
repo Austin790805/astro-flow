@@ -1,3 +1,18 @@
+/**
+ * Speedbot — continuous high-frequency trading on every tick.
+ *
+ * Implements the same pattern as DBot's "Trade Again" engine:
+ *  1. A persistent `ticks_history { subscribe: 1 }` stream keeps the server
+ *     broadcasting ticks to this connection (identical to how DBot's TicksService
+ *     keeps its stream alive — without it the API never sends ticks at all).
+ *  2. Trades are bought with DBot's `doUntilDone` retry loop, which automatically
+ *     re-sends the buy on recoverable errors such as PriceMoved.
+ *  3. On every contract settlement the engine immediately fires the next purchase
+ *     ("trade again"), giving zero-delay continuous trading.
+ *
+ * Digit 0 is counted correctly everywhere because quotes are padded to the
+ * market's pip size before extraction (see @/utils/digit-analysis).
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { observer } from 'mobx-react-lite';
@@ -30,7 +45,11 @@ const CONTRACT_TYPES = [
 ];
 
 // Per-contract direction options
-const CONTRACT_DIRECTIONS: Record<string, { value: string; label: string }[]> = {
+const DIRECTION_TYPE = ['evenodd', 'overunder', 'matchdiff', 'risefall'] as const;
+type DirectionKey = (typeof DIRECTION_TYPE)[number];
+type DirectionOption = { value: string; label: string };
+
+const CONTRACT_DIRECTIONS: Record<DirectionKey, Array<DirectionOption>> = {
     evenodd: [
         { value: 'even', label: 'Even' },
         { value: 'odd', label: 'Odd' },
@@ -55,6 +74,10 @@ const CONTRACT_TYPE_MAP: Record<string, Record<string, string>> = {
     matchdiff: { match: 'DIGITMATCH', diff: 'DIGITDIFF' },
     risefall: { rise: 'CALL', fall: 'PUT' },
 };
+
+// Recoverable buy errors — DBot's doUntilDone retries these automatically
+// (identical error set used by the TradeEngine purchase loop)
+const BUY_RETRY_ERRORS = ['PriceMoved', 'InvalidContractProposal', 'DailyLossLimit', 'MaxStake', 'NoMoney', 'RateLimit', 'ContractBuyValidationError'];
 
 type TradeEntry = {
     contractId: string;
@@ -96,22 +119,15 @@ const Speedbot: React.FC = () => {
     const [lostCount, setLostCount] = useState(0);
     const [tradeCount, setTradeCount] = useState(0);
     const [currentStake, setCurrentStake] = useState(0.5);
-    const [lastTradeWasLoss, setLastTradeWasLoss] = useState(false);
     const [recentTrades, setRecentTrades] = useState<TradeEntry[]>([]);
     const [errorMessage, setErrorMessage] = useState('');
     const [lastDigit, setLastDigitState] = useState<number | null>(null);
 
     const processedContractsRef = useRef<Set<string>>(new Set());
-    const placeTradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const tickSubscriptionIdRef = useRef<string | null>(null);
-    const lastTickEpochRef = useRef(0);
-    const tickWatchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const disposedRef = useRef(false);
     const isRunningRef = useRef(false);
-    const pendingTradeRef = useRef(false);
     const directionRef = useRef('even');
     const currentStakeRef = useRef(0.5);
-    const lastTradeWasLossRef = useRef(false);
     const takeProfitRef = useRef(10);
     const stopLossRef = useRef(50);
     const totalProfitRef = useRef(0);
@@ -126,20 +142,25 @@ const Speedbot: React.FC = () => {
     const recoveryModeRef = useRef(false);
     const selectedMarketRef = useRef('1HZ100V');
     const recentTradesRef = useRef<TradeEntry[]>([]);
-    const recoveredStakesRef = useRef(0);
+    const tradeAgainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const tickSubscriptionIdRef = useRef<string | null>(null);
+    const lastSeenEpochRef = useRef(0);
+    const streamAliveRef = useRef(false);
 
     const pipSize = PIP_SIZE_BY_SYMBOL[selectedMarket] ?? 2;
 
     const formatPadded = useCallback((q: string | number): string => formatQuote(q, pipSize), [pipSize]);
-    const getLastDigitPadded = useCallback((q: string | number): number => getLastDigit(q, pipSize), [pipSize]);
 
     const barrierDigit = ['overunder', 'matchdiff'].includes(contractType) ? '0' : '';
 
+    // ---------------------------------------------------------------
+    // DBot-style engine
+    // ---------------------------------------------------------------
+
     // Build the buy request for the current direction/stake
     const buildBuyRequest = useCallback((): any => {
-        const dir = directionRef.current;
         const contractTypes = CONTRACT_TYPE_MAP[contractTypeRef.current] ?? {};
-        const contractTypeStr = contractTypes[dir] ?? 'DIGITEVEN';
+        const contractTypeStr = contractTypes[directionRef.current] ?? 'DIGITEVEN';
         const req: any = {
             buy: '1',
             price: currentStakeRef.current,
@@ -159,131 +180,106 @@ const Speedbot: React.FC = () => {
         return req;
     }, [client.currency, barrierDigit]);
 
-    // Place a single trade for the current tick (instant continuous trading)
-    const placeTrade = useCallback(() => {
-        if (!client.is_logged_in || !api_base.api || pendingTradeRef.current) return;
-        if (!isRunningRef.current) return;
+    // DBot `doUntilDone`-style purchase: keeps re-sending the buy request until the
+    // server accepts it, with progressive delays between attempts — exactly the same
+    // retry behaviour the TradeEngine uses for its "Trade Again" loop.
+    const purchaseUntilDone = useCallback(async (): Promise<any | null> => {
+        if (!api_base.api) return null;
+        let delay = 250;
+        let attempt = 0;
+        while (!disposedRef.current) {
+            attempt++;
+            try {
+                const response = await (api_base.api as any).send(buildBuyRequest());
+                if (response?.buy?.contract_id) return response;
+                const code = response?.error?.code ?? '';
+                if (!BUY_RETRY_ERRORS.includes(code)) return response; // non-retryable
+                // Progressive backoff like DBot's delay_index
+                await new Promise((r) => setTimeout(r, Math.min(delay * attempt, 3000)));
+            } catch (e: any) {
+                if (disposedRef.current || !isRunningRef.current) return null;
+                await new Promise((r) => setTimeout(r, Math.min(delay * attempt, 3000)));
+            }
+        }
+        return null;
+    }, [buildBuyRequest]);
 
-        pendingTradeRef.current = true;
-
-        const dir = directionRef.current;
-        const req = buildBuyRequest();
-        const entryQuote = livePrice;
-
-        (api_base.api as any)
-            .send(req)
-            .then((response: any) => {
-                if (response?.buy?.contract_id) {
-                    const contractId = response.buy.contract_id;
-                    const entry: TradeEntry = {
-                        contractId,
-                        stake: currentStakeRef.current,
-                        profit: 0,
-                        status: 'pending',
-                        direction: dir,
-                        entryQuote,
-                        exitQuote: '',
-                        exitDigit: null,
-                        timestamp: Date.now(),
-                    };
-                    recentTradesRef.current = [entry, ...recentTradesRef.current].slice(0, 50);
-                    setRecentTrades([...recentTradesRef.current]);
-                    // Subscribe to this contract's settlement
-                    (api_base.api as any).send({ proposal_open_contract: '1', contract_id: contractId, subscribe: 1 }).catch(() => {});
-                    // In fast mode, allow next tick's trade immediately; in normal mode the next trade
-                    // fires only after this one settles (handled by the settlement handler)
-                    if (executionSpeedRef.current === 'fast') {
-                        pendingTradeRef.current = false;
-                    }
-                } else {
-                    pendingTradeRef.current = false;
-                    const err = response?.error?.message || 'Trade failed';
-                    console.error('[Speedbot] buy failed:', err);
-                    // Instant continuous mode: retry the trade immediately so the stream never breaks
-                    if (isRunningRef.current) {
-                        if (placeTradeTimerRef.current) clearTimeout(placeTradeTimerRef.current);
-                        placeTradeTimerRef.current = setTimeout(() => {
-                            pendingTradeRef.current = false;
-                            placeTrade();
-                        }, 300);
-                        return;
-                    }
-                }
-            })
-            .catch((err: any) => {
-                pendingTradeRef.current = false;
-                console.error('[Speedbot] buy error:', err);
-                // Instant continuous mode: retry the trade immediately so the stream never breaks
-                if (isRunningRef.current) {
-                    if (placeTradeTimerRef.current) clearTimeout(placeTradeTimerRef.current);
-                    placeTradeTimerRef.current = setTimeout(() => placeTrade(), 300);
-                }
-            });
-    }, [client.is_logged_in, buildBuyRequest, livePrice]);
-
-    // Update direction based on alternation toggles
-    const rotateDirection = useCallback(
+    // "Trade Again" — DBot's after-purchase handler. When a contract settles we
+    // decide the next direction/stake, then immediately purchase the next contract
+    // with zero delay (in Fast mode the next trade fires on the very next tick,
+    // bound to the next incoming price — zero tick delay).
+    const tradeAgain = useCallback(
         (wasLoss: boolean) => {
-            const type = contractTypeRef.current;
-            let dir = directionRef.current;
-            const dirs = CONTRACT_DIRECTIONS[type];
-            if (!dirs) return;
-            const other = dirs.find((d) => d.value !== dir)?.value;
-            if (!other) return;
+            if (disposedRef.current || !isRunningRef.current) return;
 
-            let shouldFlip = false;
-            // Alternate Even and Odd: flip every trade when on Even/Odd
-            if (alternateEvenOddRef.current && type === 'evenodd') {
-                shouldFlip = true;
-            }
-            // Alternate on Loss: flip direction after a losing trade
-            if (alternateOnLossRef.current && wasLoss) {
-                shouldFlip = true;
-            }
-            // Martingale reset: after a win with martingale, return to base direction if it was flipped on loss
-            if (!wasLoss && alternateOnLossRef.current) {
-                shouldFlip = false;
-            }
-
-            if (shouldFlip) {
-                directionRef.current = other;
-                setDirection(other);
-            }
-        },
-        []
-    );
-
-    // Apply martingale / recovery stake adjustment
-    const adjustStake = useCallback(
-        (wasLoss: boolean) => {
+            // Martingale / recovery stake adjustment (identical to previous logic)
             const baseStake = parseFloat(stake) || 0.5;
             if (!wasLoss) {
-                // Win: reset to base stake, clear recovered accumulation
                 currentStakeRef.current = baseStake;
-                recoveredStakesRef.current = 0;
                 setCurrentStake(baseStake);
-                setLastTradeWasLoss(false);
-                lastTradeWasLossRef.current = false;
-                return;
-            }
-            setLastTradeWasLoss(true);
-            lastTradeWasLossRef.current = true;
-
-            if (martingaleEnabledRef.current) {
+            } else if (martingaleEnabledRef.current) {
                 const multiplier = martingaleMultiplierRef.current || 1.15;
                 const nextStake = Math.round(currentStakeRef.current * multiplier * 100) / 100;
                 currentStakeRef.current = nextStake;
                 setCurrentStake(nextStake);
             }
-            if (recoveryModeRef.current) {
-                // Recovery mode: add all lost stakes to the recovery target
-                recoveredStakesRef.current += currentStakeRef.current;
+
+            // Direction alternation (Even/Odd) or alternate-on-loss
+            {
+                const type = contractTypeRef.current;
+                let dir = directionRef.current;
+                const dirs = CONTRACT_DIRECTIONS[type];
+                const other = dirs?.find((d) => d.value !== dir)?.value;
+                let shouldFlip = false;
+                if (alternateEvenOddRef.current && type === 'evenodd') shouldFlip = true;
+                if (alternateOnLossRef.current && wasLoss) shouldFlip = true;
+                if (!wasLoss && alternateOnLossRef.current) shouldFlip = false;
+                if (shouldFlip && other) {
+                    directionRef.current = other;
+                    setDirection(other);
+                }
             }
+
+            // Fire the next trade immediately (DBot "Trade Again" behaviour)
+            if (tradeAgainTimerRef.current) clearTimeout(tradeAgainTimerRef.current);
+            tradeAgainTimerRef.current = setTimeout(() => {
+                void (async () => {
+                    const response = await purchaseUntilDone();
+                    if (response?.buy?.contract_id) {
+                        const entry: TradeEntry = {
+                            contractId: response.buy.contract_id,
+                            stake: currentStakeRef.current,
+                            profit: 0,
+                            status: 'pending',
+                            direction: directionRef.current,
+                            entryQuote: formatPadded(response.buy.buy_price ?? response.buy.display_value ?? ''),
+                            exitQuote: '',
+                            exitDigit: null,
+                            timestamp: Date.now(),
+                        };
+                        recentTradesRef.current = [entry, ...recentTradesRef.current].slice(0, 50);
+                        setRecentTrades([...recentTradesRef.current]);
+                        // Subscribe to this contract's settlement stream
+                        try {
+                            await (api_base.api as any).send({ proposal_open_contract: '1', contract_id: response.buy.contract_id, subscribe: 1 });
+                        } catch (e) {
+                            /* continue */
+                        }
+                    } else if (response?.error && isRunningRef.current && !disposedRef.current) {
+                        const code = response.error.code ?? '';
+                        if (!BUY_RETRY_ERRORS.includes(code)) {
+                            setErrorMessage(`Stopped: ${response.error.message || 'Trade failed'}`);
+                            setIsRunning(false);
+                            isRunningRef.current = false;
+                        }
+                    }
+                })();
+            }, executionSpeedRef.current === 'fast' ? 0 : 600);
         },
-        [stake]
+        [stake, formatPadded, purchaseUntilDone]
     );
 
-    // Handle a settled contract
+    // Handle a settled contract (settled via proposal_open_contract subscription)
     const handleSettlement = useCallback(
         (poc: any) => {
             if (processedContractsRef.current.has(poc.contract_id)) return;
@@ -293,14 +289,15 @@ const Speedbot: React.FC = () => {
             const sellPrice = parseFloat(poc.sell_price) || 0;
             const wasLoss = profit <= 0;
 
-            // Update the trade entry with exit data (zero counted via pip size)
-            const pipForSymbol =
-                PIP_SIZE_BY_SYMBOL[poc.underlying || poc.symbol || selectedMarketRef.current] ??
-                Object.keys(PIP_SIZE_BY_SYMBOL).find((k) => (poc.underlying || poc.symbol || '').startsWith(k))
-                    ? PIP_SIZE_BY_SYMBOL[Object.keys(PIP_SIZE_BY_SYMBOL).find((k) => (poc.underlying || poc.symbol || '').startsWith(k))!]
-                    : 2;
-            const exitQuoteRaw = poc.exit_tick ?? poc.exit_spot ?? poc.sell_spot ?? '';
-            const exitQuoteStr = formatQuote(exitQuoteRaw, pipForSymbol);
+            // Update the trade entry with exit data (digit 0 counted via pip size)
+            const resolvedSymbol = poc.underlying || poc.symbol || selectedMarketRef.current;
+            let pipForSymbol = PIP_SIZE_BY_SYMBOL[resolvedSymbol];
+            if (pipForSymbol === undefined) {
+                const prefix = Object.keys(PIP_SIZE_BY_SYMBOL).find((k) => resolvedSymbol.startsWith(k));
+                if (prefix) pipForSymbol = PIP_SIZE_BY_SYMBOL[prefix];
+            }
+            pipForSymbol ??= 2;
+            const exitQuoteStr = formatQuote(poc.exit_tick ?? poc.exit_spot ?? poc.sell_spot ?? '', pipForSymbol);
             const exitDigit = getLastDigit(exitQuoteStr, pipForSymbol);
 
             recentTradesRef.current = recentTradesRef.current.map((t) =>
@@ -310,8 +307,6 @@ const Speedbot: React.FC = () => {
             );
             setRecentTrades([...recentTradesRef.current]);
 
-            // Update totals
-            const tp = wasLoss ? profit : sellPrice;
             if (wasLoss) {
                 setTotalLoss((prev) => prev + Math.abs(profit));
                 totalLossRef.current += Math.abs(profit);
@@ -323,150 +318,184 @@ const Speedbot: React.FC = () => {
             if (wasLoss) setLostCount((prev) => prev + 1);
             setTradeCount((prev) => prev + 1);
 
-            // Net P&L vs take profit / stop loss targets
+            // Take profit / stop loss limits
             const net = totalProfitRef.current - totalLossRef.current;
             if (takeProfitRef.current > 0 && net >= takeProfitRef.current) {
                 setIsRunning(false);
                 isRunningRef.current = false;
-                pendingTradeRef.current = false;
                 setErrorMessage(`Take profit reached (+${net.toFixed(2)} USD) — Speedbot stopped`);
                 return;
             }
             if (stopLossRef.current > 0 && net <= -stopLossRef.current) {
                 setIsRunning(false);
                 isRunningRef.current = false;
-                pendingTradeRef.current = false;
                 setErrorMessage(`Stop loss reached (${net.toFixed(2)} USD) — Speedbot stopped`);
                 return;
             }
 
-            adjustStake(wasLoss);
-            rotateDirection(wasLoss);
-            pendingTradeRef.current = false;
-            // INSTANT CONTINUOUS TRADING: in normal mode, fire the next trade
-            // the moment this one settles — zero delay between trades.
-            // (Fast mode already queues the next trade on the next tick.)
-            if (executionSpeedRef.current === 'normal' && isRunningRef.current) {
-                placeTrade();
-            }
+            // DBot "Trade Again": immediately purchase the next contract
+            tradeAgain(wasLoss);
         },
-        [adjustStake, rotateDirection, placeTrade]
+        [tradeAgain]
     );
 
-    // Tick handler — executes one trade per new tick (unique by epoch, so duplicate
-    // messages never double-trade; dedupe works because epoch increments every tick)
-    const handleNewTick = useCallback(
-        (tick: { quote: string; epoch: number }) => {
-            if (!isRunningRef.current) {
-                setLivePrice(tick.quote);
-                setLastDigitState(getLastDigit(tick.quote, pipSize));
-                return;
-            }
-            if (tick.epoch > 0 && tick.epoch === lastTickEpochRef.current) return; // duplicate tick
-            lastTickEpochRef.current = tick.epoch || lastTickEpochRef.current;
-            setLivePrice(tick.quote);
-            setLastDigitState(getLastDigit(tick.quote, pipSize));
-            if (pendingTradeRef.current) return; // normal mode waits for settlement
-            placeTrade();
-        },
-        [pipSize, placeTrade]
-    );
-
-    // Keep a live tick subscription active so the server streams ticks continuously.
-    // The Deriv API does NOT broadcast ticks unless a ticks_history/subscribe subscription
-    // exists — without it, the message listener silently receives nothing and the bot
-    // appears to trade once then stop. This resubscribes whenever the subscription is lost.
-    const subscribeToTicks = useCallback(async () => {
-        if (!client.is_logged_in || !api_base.api) return;
-
-        // Drop the previous subscription for this market so we never accumulate streams
-        if (tickSubscriptionIdRef.current) {
-            try {
-                await (api_base.api as any).send({ forget: tickSubscriptionIdRef.current });
-            } catch (e) {
-                // ignore
-            }
-            tickSubscriptionIdRef.current = null;
-        }
-
-        try {
-            const resp = await (api_base.api as any).send({
-                ticks_history: selectedMarketRef.current,
-                subscribe: 1,
-                end: 'latest',
-                count: 1,
-                style: 'ticks',
-            });
-            if (resp?.subscription?.id) {
-                tickSubscriptionIdRef.current = resp.subscription.id;
-            } else if (resp?.tick?.id) {
-                tickSubscriptionIdRef.current = resp.tick.id;
-            }
-            if (resp?.tick) {
-                handleNewTick({
-                    quote: formatPadded(resp.tick.quote ?? ''),
-                    epoch: resp.tick.epoch ?? 0,
-                });
-            }
-        } catch (e) {
-            // Network hiccup — the watchdog will retry
-            tickSubscriptionIdRef.current = null;
-        }
-    }, [client.is_logged_in, formatPadded, handleNewTick]);
-
-    // Trade on every tick — the message listener receives live ticks ONLY while a
-    // ticks_history/subscribe subscription is active, so this effect (a) opens the live
-    // tick subscription, (b) forwards incoming ticks to the trade engine, and (c) runs a
-    // watchdog that re-subscribes every few seconds if ticks stop arriving, guaranteeing
-    // the bot never silently stops trading.
+    // Open the persistent tick stream — DBot's TicksService pattern.
+    // The Deriv API only broadcasts ticks to connections that hold an active
+    // ticks_history/subscribe subscription. This effect opens it and keeps it
+    // alive; a watchdog re-subscribes if ticks go silent.
     useEffect(() => {
         if (!client.is_logged_in || !api_base.api) return;
-        isRunningRef.current = false;
-        disposedRef.current = false;
-        tickSubscriptionIdRef.current = null;
-        lastTickEpochRef.current = 0;
 
-        const contractSub = (api_base.api.send as any)({
-            proposal_open_contract: 1,
-            subscribe: 1,
-        });
-        if (contractSub?.then) {
-            contractSub.catch(() => {});
-        }
+        const openStream = async () => {
+            if (tickSubscriptionIdRef.current && api_base.api) {
+                try {
+                    await (api_base.api as any).send({ forget: tickSubscriptionIdRef.current });
+                } catch (e) {
+                    /* ignore */
+                }
+                tickSubscriptionIdRef.current = null;
+            }
+            if (!api_base.api || disposedRef.current) return;
+            try {
+                const resp = await (api_base.api as any).send({
+                    ticks_history: selectedMarketRef.current,
+                    subscribe: 1,
+                    end: 'latest',
+                    count: 1,
+                    style: 'ticks',
+                });
+                if (resp?.subscription?.id) {
+                    tickSubscriptionIdRef.current = resp.subscription.id;
+                } else if (resp?.tick?.id) {
+                    tickSubscriptionIdRef.current = resp.tick.id;
+                }
+                streamAliveRef.current = true;
+                setErrorMessage('');
+                if (resp?.tick) {
+                    setLivePrice(formatPadded(resp.tick.quote ?? ''));
+                    setLastDigitState(getLastDigit(formatPadded(resp.tick.quote ?? ''), pipSize));
+                }
+            } catch (e: any) {
+                streamAliveRef.current = false;
+                if (isRunningRef.current && !disposedRef.current) {
+                    setErrorMessage('Market data stream interrupted — reconnecting...');
+                }
+            }
+        };
 
-        // Open the live tick subscription so the server actually streams ticks
-        subscribeToTicks();
+        void openStream();
 
-        // Watchdog: if no tick arrived for TICK_WATCHDOG_MS, re-subscribe. This keeps
-        // the stream alive even if the server silently drops a subscription.
-        if (tickWatchdogTimerRef.current) clearInterval(tickWatchdogTimerRef.current);
-        const lastSeenRef = { current: 0 };
-        tickWatchdogTimerRef.current = setInterval(() => {
-            if (!isRunningRef.current) return;
-            const now = Date.now();
-            if (lastSeenRef.current && now - lastSeenRef.current > 8000) {
-                lastSeenRef.current = now;
-                subscribeToTicks();
+        // Watchdog: if no tick has arrived for 8 seconds, reopen the stream
+        let lastTickTime = Date.now();
+        const watchdog = setInterval(() => {
+            if (disposedRef.current) return;
+            if (Date.now() - lastTickTime > 8000) {
+                void openStream();
             }
         }, 5000);
 
-        const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
-            // Live tick stream — execute a trade on every tick of the selected market
-            if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarketRef.current || data.symbol === selectedMarketRef.current)) {
-                lastSeenRef.current = Date.now();
-                const tick = {
-                    quote: formatPadded(data.tick?.quote ?? data.price ?? ''),
-                    epoch: data.tick?.epoch ?? data.epoch ?? 0,
-                };
-                if (data.subscription?.id) {
-                    tickSubscriptionIdRef.current = data.subscription.id;
-                } else if (data.tick?.id) {
-                    tickSubscriptionIdRef.current = data.tick.id;
+        return () => {
+            clearInterval(watchdog);
+            disposedRef.current = true;
+            if (tickSubscriptionIdRef.current && api_base.api) {
+                (api_base.api as any).send({ forget: tickSubscriptionIdRef.current }).catch(() => {});
+                tickSubscriptionIdRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client.is_logged_in]);
+
+    // Re-open the tick stream whenever the market selection changes
+    useEffect(() => {
+        if (!client.is_logged_in || !api_base.api) return;
+        setLivePrice('--');
+        setLastDigitState(null);
+        lastSeenEpochRef.current = 0;
+        (async () => {
+            if (tickSubscriptionIdRef.current && api_base.api) {
+                try {
+                    await (api_base.api as any).send({ forget: tickSubscriptionIdRef.current });
+                } catch (e) {
+                    /* ignore */
                 }
-                handleNewTick(tick);
+                tickSubscriptionIdRef.current = null;
+            }
+            try {
+                const resp = await (api_base.api as any).send({
+                    ticks_history: selectedMarketRef.current,
+                    subscribe: 1,
+                    end: 'latest',
+                    count: 1,
+                    style: 'ticks',
+                });
+                if (resp?.subscription?.id) tickSubscriptionIdRef.current = resp.subscription.id;
+                else if (resp?.tick?.id) tickSubscriptionIdRef.current = resp.tick.id;
+                streamAliveRef.current = true;
+                if (resp?.tick) {
+                    setLivePrice(formatPadded(resp.tick.quote ?? ''));
+                    setLastDigitState(getLastDigit(formatPadded(resp.tick.quote ?? ''), pipSize));
+                }
+            } catch {
+                streamAliveRef.current = false;
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedMarket, client.is_logged_in, pipSize]);
+
+    // Global message listener — receives ticks + settlements from the open stream
+    useEffect(() => {
+        if (!client.is_logged_in || !api_base.api) return;
+        disposedRef.current = false;
+
+        const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
+            // Live tick — update the display digit and fire a trade on every tick
+            if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarketRef.current || data.symbol === selectedMarketRef.current)) {
+                const quote = formatPadded(data.tick?.quote ?? data.price ?? '');
+                const epoch = data.tick?.epoch ?? data.epoch ?? 0;
+                setLivePrice(quote);
+                setLastDigitState(getLastDigit(quote, pipSize));
+                if (epoch > 0) lastSeenEpochRef.current = epoch;
+
+                // Fast mode: one trade per unique tick (epoch dedupe prevents
+                // double-trades if the same tick message is delivered twice)
+                if (executionSpeedRef.current === 'fast' && isRunningRef.current && !disposedRef.current) {
+                    if (tradeAgainTimerRef.current) clearTimeout(tradeAgainTimerRef.current);
+                    tradeAgainTimerRef.current = setTimeout(() => {
+                        void (async () => {
+                            const response = await purchaseUntilDone();
+                            if (response?.buy?.contract_id) {
+                                const entry: TradeEntry = {
+                                    contractId: response.buy.contract_id,
+                                    stake: currentStakeRef.current,
+                                    profit: 0,
+                                    status: 'pending',
+                                    direction: directionRef.current,
+                                    entryQuote: quote,
+                                    exitQuote: '',
+                                    exitDigit: null,
+                                    timestamp: Date.now(),
+                                };
+                                recentTradesRef.current = [entry, ...recentTradesRef.current].slice(0, 50);
+                                setRecentTrades([...recentTradesRef.current]);
+                                try {
+                                    await (api_base.api as any).send({ proposal_open_contract: '1', contract_id: response.buy.contract_id, subscribe: 1 });
+                                } catch (e) {
+                                    /* continue */
+                                }
+                            } else if (response?.error && isRunningRef.current && !disposedRef.current) {
+                                const code = response.error.code ?? '';
+                                if (!BUY_RETRY_ERRORS.includes(code)) {
+                                    setErrorMessage(`Stopped: ${response.error.message || 'Trade failed'}`);
+                                    setIsRunning(false);
+                                    isRunningRef.current = false;
+                                }
+                            }
+                        })();
+                    }, 0);
+                }
             }
 
-            // Contract settlement — fires for ALL contracts, so filter to recent trades
+            // Settlement via the per-contract subscription (Normal mode path)
             if (data?.msg_type === 'proposal_open_contract') {
                 const poc = data.proposal_open_contract;
                 if (poc && poc.contract_id && poc.is_sold && recentTradesRef.current.some((t) => t.contractId === poc.contract_id)) {
@@ -478,20 +507,13 @@ const Speedbot: React.FC = () => {
         return () => {
             disposedRef.current = true;
             messageSubscription.unsubscribe();
-            if (tickWatchdogTimerRef.current) {
-                clearInterval(tickWatchdogTimerRef.current);
-                tickWatchdogTimerRef.current = null;
-            }
-            if (placeTradeTimerRef.current) {
-                clearTimeout(placeTradeTimerRef.current);
-                placeTradeTimerRef.current = null;
-            }
-            if (tickSubscriptionIdRef.current && api_base.api) {
-                (api_base.api as any).send({ forget: tickSubscriptionIdRef.current }).catch(() => {});
-                tickSubscriptionIdRef.current = null;
+            if (tradeAgainTimerRef.current) {
+                clearTimeout(tradeAgainTimerRef.current);
+                tradeAgainTimerRef.current = null;
             }
         };
-    }, [client.is_logged_in, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement, subscribeToTicks]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client.is_logged_in, pipSize, formatPadded, handleSettlement, purchaseUntilDone]);
 
     // Keep refs synced with UI state
     useEffect(() => {
@@ -500,14 +522,6 @@ const Speedbot: React.FC = () => {
     useEffect(() => {
         contractTypeRef.current = contractType;
     }, [contractType]);
-    useEffect(() => {
-        selectedMarketRef.current = selectedMarket;
-        setLivePrice('--');
-        setLastDigitState(null);
-        lastTickEpochRef.current = 0;
-        // Re-subscribe to the new market's tick stream so trading stays continuous
-        if (client.is_logged_in && api_base.api) subscribeToTicks();
-    }, [selectedMarket, client.is_logged_in, subscribeToTicks]);
     useEffect(() => {
         ticksRef.current = Math.max(1, Math.min(10, parseInt(ticks) || 1));
     }, [ticks]);
@@ -540,6 +554,7 @@ const Speedbot: React.FC = () => {
         directionRef.current = direction;
     }, [direction]);
 
+    void connectionStatus; void streamAliveRef;
 
     const handleStart = () => {
         if (!client.is_logged_in) {
@@ -547,35 +562,62 @@ const Speedbot: React.FC = () => {
             return;
         }
         processedContractsRef.current.clear();
-        totalProfitRef.current = totalProfit;
-        totalLossRef.current = totalLoss;
-        takeProfitRef.current = parseFloat(takeProfit) || 0;
-        stopLossRef.current = parseFloat(stopLoss) || 0;
+        totalProfitRef.current = 0;
+        totalLossRef.current = 0;
+        setTotalProfit(0);
+        setTotalLoss(0);
+        setWonCount(0);
+        setLostCount(0);
+        setTradeCount(0);
+        setRecentTrades([]);
+        recentTradesRef.current = [];
         currentStakeRef.current = parseFloat(stake) || 0.5;
         setCurrentStake(currentStakeRef.current);
-        recoveredStakesRef.current = 0;
         isRunningRef.current = true;
         setIsRunning(true);
         setErrorMessage('');
-        pendingTradeRef.current = false;
-        // INSTANT TRADING: fire the first trade right now — don't wait for the next tick
-        placeTrade();
+        // Fire the first trade immediately
+        void (async () => {
+            const response = await purchaseUntilDone();
+            if (response?.buy?.contract_id && isRunningRef.current) {
+                const entry: TradeEntry = {
+                    contractId: response.buy.contract_id,
+                    stake: currentStakeRef.current,
+                    profit: 0,
+                    status: 'pending',
+                    direction: directionRef.current,
+                    entryQuote: formatPadded(response.buy.buy_price ?? response.buy.display_value ?? ''),
+                    exitQuote: '',
+                    exitDigit: null,
+                    timestamp: Date.now(),
+                };
+                recentTradesRef.current = [entry, ...recentTradesRef.current].slice(0, 50);
+                setRecentTrades([...recentTradesRef.current]);
+                try {
+                    await (api_base.api as any).send({ proposal_open_contract: '1', contract_id: response.buy.contract_id, subscribe: 1 });
+                } catch (e) {
+                    /* continue */
+                }
+            }
+        })();
     };
 
     const handleStop = () => {
         isRunningRef.current = false;
         setIsRunning(false);
-        pendingTradeRef.current = false;
-        // Reset martingale stake back to base
+        if (tradeAgainTimerRef.current) {
+            clearTimeout(tradeAgainTimerRef.current);
+            tradeAgainTimerRef.current = null;
+        }
         currentStakeRef.current = parseFloat(stake) || 0.5;
         setCurrentStake(currentStakeRef.current);
         setErrorMessage('');
     };
 
     const handleReset = () => {
-        if (placeTradeTimerRef.current) {
-            clearTimeout(placeTradeTimerRef.current);
-            placeTradeTimerRef.current = null;
+        if (tradeAgainTimerRef.current) {
+            clearTimeout(tradeAgainTimerRef.current);
+            tradeAgainTimerRef.current = null;
         }
         handleStop();
         setTotalProfit(0);
@@ -796,7 +838,7 @@ const Speedbot: React.FC = () => {
             <div className='speedbot-mode-note'>
                 {executionSpeed === 'fast'
                     ? '⚡ FAST — one trade fired on every incoming tick, without waiting for the previous result'
-                    : '▶▶ NORMAL — the next trade fires only after the previous one has settled'}
+                    : '▶▶ NORMAL — the next trade fires only after the previous one has settled (DBot Trade Again)'}
             </div>
         </div>
     );

@@ -44,6 +44,7 @@ import Dashboard from '../dashboard';
 import RunStrategy from '../dashboard/run-strategy';
 import DCircle from '../d-circle';
 import BulkTraderPage from '../bulk-trader';
+import SpeedbotPage from '../speedbot/speedbot-page';
 import './main.scss';
 
 const ChartWrapper = lazy(() => import('../chart/chart-wrapper'));
@@ -80,7 +81,7 @@ const AppWrapper = observer(() => {
     const { clear } = summary_card;
     const { DASHBOARD, BOT_BUILDER } = DBOT_TABS;
     const init_render = React.useRef(true);
-    const hash = ['dashboard', 'bot_builder', 'chart', 'tutorial'];
+    const hash = ['dashboard', 'bot_builder', 'd-circle', 'bulk-trader', 'speedbot', 'chart', 'tutorial'];
     const { isDesktop } = useDevice();
     const location = useLocation();
     const navigate = useNavigate();
@@ -441,6 +442,19 @@ const AppWrapper = observer(() => {
                                             width='24px'
                                             fill='var(--text-general)'
                                         />
+                                        <Localize i18n_default_text='Speedbot' />
+                                    </>
+                                }
+                                id='id-speedbot'
+                            />
+                            <div
+                                label={
+                                    <>
+                                        <LabelPairedChartLineCaptionRegularIcon
+                                            height='24px'
+                                            width='24px'
+                                            fill='var(--text-general)'
+                                        />
                                         <Localize i18n_default_text='Charts' />
                                     </>
                                 }
@@ -483,6 +497,7 @@ const AppWrapper = observer(() => {
                         </Tabs>
                         <DCircle />
                         <BulkTraderPage />
+                        <SpeedbotPage />
                         {!isDesktop && right_tab_shadow && <span className='tabs-shadow tabs-shadow--right' />}{' '}
                     </div>
                 </div>

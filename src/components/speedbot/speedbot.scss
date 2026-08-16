@@ -1,0 +1,424 @@
+.speedbot {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 1.2rem;
+    color: #e6f1ff;
+    font-family: inherit;
+
+    .speedbot-header {
+        margin-bottom: 0.6rem;
+    }
+
+    .speedbot-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-align: center;
+        border-bottom: 2px solid #1e3a5f;
+        padding-bottom: 0.5rem;
+    }
+
+    /* Start + Execution Speed row */
+    .speedbot-start-row {
+        display: flex;
+        gap: 0.6rem;
+        margin: 1rem 0 1.2rem;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.6rem;
+        overflow: hidden;
+    }
+
+    .speedbot-start-btn {
+        flex: 0 0 38%;
+        font-size: 1.3rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        padding: 0.9rem 0;
+        background: #16a085;
+        color: #ffffff;
+        border: none;
+        cursor: pointer;
+        &:hover {
+            background: #138a72;
+        }
+        &:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    }
+
+    .speedbot-start-btn--running {
+        background: #e74c3c;
+        &:hover {
+            background: #c0392b;
+        }
+    }
+
+    .speedbot-speed {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 0.4rem 0.6rem;
+        background: #0a1a2e;
+    }
+
+    .speedbot-speed-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #9fb3c8;
+        margin-bottom: 0.35rem;
+    }
+
+    .speedbot-speed-options {
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .speedbot-speed-opt {
+        flex: 1;
+        font-size: 0.85rem;
+        font-weight: 700;
+        padding: 0.5rem 0;
+        border-radius: 0.4rem;
+        border: none;
+        cursor: pointer;
+        background: #12283f;
+        color: #9fb3c8;
+        &:hover {
+            background: #17334f;
+        }
+    }
+
+    .speedbot-speed-opt--fast {
+        &.speedbot-speed-opt--active {
+            background: #ff6b35;
+            color: #ffffff;
+        }
+    }
+
+    .speedbot-speed-opt--normal {
+        &.speedbot-speed-opt--active {
+            background: #1e3a8a;
+            color: #ffffff;
+        }
+    }
+
+    /* Market + live price */
+    .speedbot-market-row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 1rem;
+    }
+
+    .speedbot-select {
+        flex: 1;
+        padding: 0.8rem 0.8rem;
+        background: #0a1a2e;
+        color: #e6f1ff;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.6rem;
+        font-size: 1rem;
+        appearance: auto;
+    }
+
+    .speedbot-price {
+        flex: 0 0 auto;
+        min-width: 5.5rem;
+        text-align: right;
+        font-size: 1.4rem;
+        font-weight: 800;
+        color: #ff6b35;
+    }
+
+    .speedbot-control-row {
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+    }
+
+    .speedbot-select--contract {
+        width: 100%;
+    }
+
+    /* Inputs row */
+    .speedbot-inputs-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.7rem;
+        margin-bottom: 1.1rem;
+    }
+
+    .speedbot-input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .speedbot-input-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #9fb3c8;
+    }
+
+    .speedbot-input {
+        padding: 0.7rem 0.6rem;
+        background: #0a1a2e;
+        color: #e6f1ff;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.6rem;
+        font-size: 1rem;
+        width: 100%;
+        box-sizing: border-box;
+        &::-webkit-outer-spin-button,
+        &::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    }
+
+    .speedbot-input--multiplier {
+        width: 7rem;
+        margin-inline-start: auto;
+    }
+
+    .speedbot-multiplier-label {
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    /* Toggles */
+    .speedbot-toggles-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.7rem;
+        margin-bottom: 1.1rem;
+    }
+
+    .speedbot-toggle-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.9rem;
+        background: #0a1a2e;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.6rem;
+    }
+
+    .speedbot-toggle-label {
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+
+    .speedbot-toggle {
+        position: relative;
+        display: inline-block;
+        width: 2.8rem;
+        height: 1.5rem;
+        flex: 0 0 auto;
+        input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+    }
+
+    .speedbot-toggle-slider {
+        position: absolute;
+        inset: 0;
+        background: #12283f;
+        border: 1px solid #2d5078;
+        border-radius: 1.5rem;
+        cursor: pointer;
+        transition: background 0.2s;
+        &::before {
+            content: '';
+            position: absolute;
+            height: 1.1rem;
+            width: 1.1rem;
+            inset-inline-start: 0.15rem;
+            top: 0.12rem;
+            background: #8fa8c2;
+            border-radius: 50%;
+            transition: transform 0.2s, background 0.2s;
+        }
+    }
+
+    .speedbot-toggle input:checked + .speedbot-toggle-slider {
+        background: #12283f;
+        border-color: #ff6b35;
+        &::before {
+            transform: translateX(1.25rem);
+            background: #ff6b35;
+        }
+    }
+
+    /* Martingale row */
+    .speedbot-martingale-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.9rem 0;
+        border-top: 1px solid #1e3a5f;
+        border-bottom: 1px solid #1e3a5f;
+        margin-bottom: 0.8rem;
+    }
+
+    .speedbot-martingale-label {
+        font-size: 1.05rem;
+        font-weight: 700;
+    }
+
+    /* Status row */
+    .speedbot-status-row {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 0.5rem;
+        margin: 1rem 0;
+    }
+
+    .speedbot-stat {
+        text-align: center;
+        padding: 0.5rem 0;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.5rem;
+        background: #0a1a2e;
+    }
+
+    .speedbot-stat-label {
+        display: block;
+        font-size: 0.75rem;
+        color: #9fb3c8;
+    }
+
+    .speedbot-stat-value {
+        display: block;
+        font-size: 1.1rem;
+        font-weight: 800;
+    }
+
+    .speedbot-stat-value--won {
+        color: #2ecc71;
+    }
+
+    .speedbot-stat-value--lost {
+        color: #e74c3c;
+    }
+
+    /* Digit row */
+    .speedbot-digit-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.6rem 0.9rem;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.6rem;
+        background: #0a1a2e;
+        margin-bottom: 1rem;
+    }
+
+    .speedbot-digit-label {
+        font-size: 0.95rem;
+        color: #9fb3c8;
+    }
+
+    .speedbot-digit-value {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #ff6b35;
+    }
+
+    .speedbot-digit-value--zero {
+        color: #2ecc71;
+    }
+
+    /* Trades */
+    .speedbot-trades {
+        margin-bottom: 1rem;
+    }
+
+    .speedbot-trades-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 700;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid #1e3a5f;
+        margin-bottom: 0.5rem;
+    }
+
+    .speedbot-reset-btn {
+        background: none;
+        border: 1px solid #2d5078;
+        color: #9fb3c8;
+        border-radius: 0.4rem;
+        padding: 0.25rem 0.7rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+        &:hover {
+            background: #12283f;
+        }
+        &:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+    }
+
+    .speedbot-trades-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        max-height: 12rem;
+        overflow-y: auto;
+    }
+
+    .speedbot-trades-empty {
+        font-size: 0.85rem;
+        color: #6d86a0;
+    }
+
+    .speedbot-trade-chip {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 0.3rem 0.6rem;
+        border-radius: 1rem;
+        background: #12283f;
+    }
+
+    .speedbot-trade-chip--won {
+        color: #2ecc71;
+        border: 1px solid #2ecc71;
+    }
+
+    .speedbot-trade-chip--lost {
+        color: #e74c3c;
+        border: 1px solid #e74c3c;
+    }
+
+    .speedbot-trade-chip--pending {
+        color: #9fb3c8;
+        border: 1px solid #2d5078;
+    }
+
+    .speedbot-error {
+        padding: 0.5rem 0.7rem;
+        background: #3b1010;
+        border: 1px solid #e74c3c;
+        border-radius: 0.5rem;
+        color: #ffb3ab;
+        font-size: 0.85rem;
+        margin-bottom: 0.8rem;
+    }
+
+    .speedbot-mode-note {
+        font-size: 0.8rem;
+        color: #6d86a0;
+        text-align: center;
+    }
+}

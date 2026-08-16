@@ -1,0 +1,26 @@
+.speedbot-page {
+    position: absolute;
+    top: 6.6rem;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    z-index: -1;
+    background: #0d1b2a;
+    height: var(--tab-content-height);
+    overflow-y: auto;
+}
+
+.speedbot-page--active {
+    z-index: 1;
+}
+
+.speedbot-page--inactive {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .speedbot-page {
+        top: 5.6rem;
+        width: 100vw;
+        height: var(--tab-content-height-mobile);
+    }
+}

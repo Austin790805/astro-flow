@@ -188,11 +188,7 @@ const BulkTrader: React.FC = () => {
                 // Auto-set a sensible default barrier when over/under or match/differ selected
                 if (tickData.length > 0 && ['overunder', 'matchdiff'].includes(tradeType)) {
                     const d = getLastDigit(tickData[tickData.length - 1].quote);
-                    setBarrierDigit(
-                        ['overunder', 'matchdiff'].includes(tradeType)
-                            ? String(tradeType === 'overunder' ? Math.max(0, Math.min(8, d)) : d)
-                            : String(d)
-                    );
+                    setBarrierDigit(String(d));
                 }
             }
         } catch (error: any) {
@@ -247,7 +243,7 @@ const BulkTrader: React.FC = () => {
             // Handle contract updates (proposal_open_contract)
             if (data?.msg_type === 'proposal_open_contract') {
                 const poc = data.proposal_open_contract;
-                if (poc && poc.contract_id && currentBatchContractsRef.current.has(poc.contract_id)) {
+                if (poc && poc.contract_id && openContractsRef.current.has(poc.contract_id)) {
                     if (poc.is_sold) {
                         const sellPrice = parseFloat(poc.sell_price) || 0;
                         const profit = parseFloat(poc.profit) || 0;
@@ -322,9 +318,8 @@ const BulkTrader: React.FC = () => {
         if (['overunder', 'matchdiff'].includes(tradeType)) {
             const d = parseInt(barrierDigit) || 5;
             if (tradeType === 'overunder') {
-                // For Over/Under, valid barrier is 1-8 for over (last digit > barrier)
-                // Under: last digit < barrier. 0 can't be 'over' anything, 9 can't be 'under' anything.
-                return String(Math.max(1, Math.min(8, d)));
+                // For Over/Under, valid barrier is 0-9
+                return String(Math.max(0, Math.min(9, d)));
             }
             // Match/Differ: barrier can be 0-9
             return String(Math.max(0, Math.min(9, d)));
@@ -544,7 +539,7 @@ const BulkTrader: React.FC = () => {
                 return direction === 'over'
                     ? Array.from({ length: 9 - b }, (_, i) => b + 1 + i)
                     : Array.from({ length: b }, (_, i) => i);
-            }
+            } // 0 → over: [1..9], under: []; 9 → over: [], under: [0..8]
             case 'matchdiff': {
                 const b = parseInt(barrierDigit) || 5;
                 return direction === 'match' ? [b] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].filter(d => d !== b);
@@ -633,7 +628,7 @@ const BulkTrader: React.FC = () => {
                             onChange={(e) => setBarrierDigit(e.target.value)}
                         >
                             {(tradeType === 'overunder'
-                                ? [1, 2, 3, 4, 5, 6, 7, 8]
+                                ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
                                 : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
                             ).map((d) => (
                                 <option key={d} value={String(d)}>

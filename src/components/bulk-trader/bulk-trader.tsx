@@ -81,6 +81,35 @@ type RunRecord = {
     results: { contractId: string; profit: number; status: 'won' | 'lost'; sellPrice: number }[];
 };
 
+// Verify a settled digit contract outcome from its entry and exit ticks
+const computeExpectedOutcome = (
+    contractType: string,
+    entryDigit: number,
+    exitDigit: number,
+    barrier: number
+): boolean | null => {
+    switch (contractType) {
+        case 'DIGITOVER':
+            return exitDigit > barrier;
+        case 'DIGITUNDER':
+            return exitDigit < barrier;
+        case 'DIGITMATCH':
+            return exitDigit === barrier;
+        case 'DIGITDIFF':
+            return exitDigit !== barrier;
+        case 'DIGITEVEN':
+            return exitDigit % 2 === 0;
+        case 'DIGITODD':
+            return exitDigit % 2 !== 0;
+        case 'CALL': // rise: exit > entry
+            return exitDigit > entryDigit;
+        case 'PUT': // fall: exit < entry
+            return exitDigit < entryDigit;
+        default:
+            return null;
+    }
+};
+
 const BulkTrader: React.FC = () => {
     const { client } = useStore();
     const [selectedMarket, setSelectedMarket] = useState('1HZ100V');
@@ -279,6 +308,45 @@ const BulkTrader: React.FC = () => {
                     const sellPrice = parseFloat(poc.sell_price) || 0;
                     const profit = parseFloat(poc.profit) || 0;
                     const record = openContractsRef.current.get(poc.contract_id);
+
+                    // --- Verification: compute expected result from entry/exit ticks ---
+                    const resolvedSymbol = poc.underlying || poc.symbol || selectedMarket || '';
+                    let pipForSymbol = PIP_SIZE_BY_SYMBOL[resolvedSymbol];
+                    // Fallback: match by path prefix (e.g. 1HZ100V falls back via '1HZ')
+                    if (pipForSymbol === undefined) {
+                        const prefix = Object.keys(PIP_SIZE_BY_SYMBOL).find(k => resolvedSymbol.startsWith(k));
+                        if (prefix) pipForSymbol = PIP_SIZE_BY_SYMBOL[prefix];
+                    }
+                    pipForSymbol ??= 2;
+                    const entryQuote = formatQuote(poc.entry_tick ?? poc.entry_spot ?? '', pipForSymbol);
+                    const exitQuote = formatQuote(poc.exit_tick ?? poc.exit_spot ?? poc.sell_spot ?? '', pipForSymbol);
+                    const entryDigitV = getLastDigit(entryQuote, pipForSymbol);
+                    const exitDigitV = getLastDigit(exitQuote, pipForSymbol);
+                    const barrierV = parseFloat(poc.barrier);
+                    const expected = computeExpectedOutcome(poc.contract_type, entryDigitV, exitDigitV, barrierV);
+                    const serverWin = profit > 0;
+                    if (expected !== null && expected !== serverWin) {
+                        console.warn(
+                            '[BulkTrader] Settlement mismatch!',
+                            JSON.stringify({
+                                contract_id: poc.contract_id,
+                                contract_type: poc.contract_type,
+                                barrier: poc.barrier,
+                                entry_tick: poc.entry_tick,
+                                exit_tick: poc.exit_tick ?? poc.sell_spot,
+                                entry_quote: entryQuote,
+                                exit_quote: exitQuote,
+                                entry_digit: entryDigitV,
+                                exit_digit: exitDigitV,
+                                expected_win: expected,
+                                server_profit: poc.profit,
+                            })
+                        );
+                    }
+                    console.log(
+                        '[BulkTrader] settled',
+                        JSON.stringify({ contract_id: poc.contract_id, type: poc.contract_type, barrier: poc.barrier, entry_quote: entryQuote, exit_quote: exitQuote, exit_digit: exitDigitV, profit: poc.profit, expected: expected, server_win: serverWin })
+                    );
 
                     if (record) {
                         record.sellPrice = sellPrice;

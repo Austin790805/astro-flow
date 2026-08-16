@@ -71,6 +71,7 @@ type RunRecord = {
     direction: string;
     barrier: string | null;
     numTrades: number;
+    duration?: number;
     stake: number;
     totalStake: number;
     timestamp: number;
@@ -99,6 +100,7 @@ const BulkTrader: React.FC = () => {
     const [lostTrades, setLostTrades] = useState(0);
     const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
     const [batchCount, setBatchCount] = useState(0);
+    const [duration, setDuration] = useState<string>('1');
     const [isApiReady, setIsApiReady] = useState(false);
     const [runHistory, setRunHistory] = useState<RunRecord[]>([]);
     const [errorMessage, setErrorMessage] = useState('');
@@ -356,6 +358,7 @@ const BulkTrader: React.FC = () => {
 
         const stakeAmount = parseFloat(stake) || 0.5;
         const numTradesInt = parseInt(numTrades) || 1;
+        const durationTicks = Math.max(1, Math.min(10, parseInt(duration) || 1));
         const contractType = getContractType(direction);
         const totalBatchStake = stakeAmount * numTradesInt;
         const barrier = getBarrierDigit();
@@ -380,6 +383,7 @@ const BulkTrader: React.FC = () => {
             direction,
             barrier: barrier || null,
             numTrades: numTradesInt,
+            duration: durationTicks,
             stake: stakeAmount,
             totalStake: totalBatchStake,
             timestamp: Date.now(),
@@ -399,7 +403,7 @@ const BulkTrader: React.FC = () => {
                         basis: 'stake',
                         contract_type: contractType,
                         currency: client.currency || 'USD',
-                        duration: 1,
+                        duration: durationTicks,
                         duration_unit: 't',
                         underlying_symbol: selectedMarket,
                     },
@@ -486,7 +490,7 @@ const BulkTrader: React.FC = () => {
             setErrorMessage(error?.message || 'Failed to execute trades');
             setIsRunning(false);
         }
-    }, [client.is_logged_in, client.currency, stake, numTrades, direction, tradeType, barrierDigit, selectedMarket, batchCount]);
+    }, [client.is_logged_in, client.currency, stake, numTrades, duration, direction, tradeType, barrierDigit, selectedMarket, batchCount]);
 
     const handleStart = useCallback(() => {
         if (!client.is_logged_in || !api_base.api) {
@@ -776,8 +780,15 @@ const BulkTrader: React.FC = () => {
             {/* Stake & Trades Controls */}
             <div className='trade-controls'>
                 <div className='control-group'>
-                    <label className='control-label'>DURATION</label>
-                    <input type='text' className='small-input' value='1 Tick' readOnly />
+                    <label className='control-label'>DURATION (TICKS)</label>
+                    <input
+                        type='number'
+                        className='small-input'
+                        value={duration}
+                        onChange={(e) => setDuration(e.target.value)}
+                        min='1'
+                        max='10'
+                    />
                 </div>
                 <div className='control-group'>
                     <label className='control-label'>STAKE</label>

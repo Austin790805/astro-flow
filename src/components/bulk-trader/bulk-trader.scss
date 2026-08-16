@@ -395,6 +395,13 @@
         }
     }
 
+    .trade-history-empty {
+        padding: 12px 8px;
+        font-size: 11px;
+        color: #556677;
+        text-align: center;
+    }
+
     .trade-history-list {
         max-height: 120px;
         overflow-y: auto;

@@ -65,7 +65,7 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
                             }}
                         >
                             <span className='digit-value'>{digit}</span>
-                            <span className='digit-percentage'>{digitPercentages[digit]?.toFixed(1)}%</span>
+                            <span className='digit-percentage'>{(digitPercentages[digit] ?? 0).toFixed(1)}%</span>
                         </div>
                     </div>
                 ))}
@@ -83,7 +83,7 @@ const DigitsCircles: React.FC<{ digitPercentages: number[]; lastDigit: number }>
                             }}
                         >
                             <span className='digit-value'>{digit}</span>
-                            <span className='digit-percentage'>{digitPercentages[digit]?.toFixed(1)}%</span>
+                            <span className='digit-percentage'>{(digitPercentages[digit] ?? 0).toFixed(1)}%</span>
                         </div>
                     </div>
                 ))}
@@ -377,12 +377,12 @@ const DCircleAnalysis: React.FC = () => {
         try {
             if (subscriptionIdRef.current && api_base.api) {
                 try {
-                    await api_base.api.forget(subscriptionIdRef.current);
+                    await (api_base.api as any).forget(subscriptionIdRef.current);
                 } catch (e) {}
                 subscriptionIdRef.current = null;
             }
 
-            const response = await api_base.api?.send({
+            const response = await (api_base.api as any)?.send({
                 ticks_history: selectedMarket,
                 subscribe: 1,
                 end: 'latest',
@@ -447,7 +447,7 @@ const DCircleAnalysis: React.FC = () => {
         return () => {
             messageSubscription.unsubscribe();
             if (subscriptionIdRef.current && api_base.api) {
-                api_base.api.forget(subscriptionIdRef.current).catch(() => {});
+                (api_base.api as any).forget(subscriptionIdRef.current).catch(() => {});
             }
         };
     }, [selectedMarket, tickCount, client.is_logged_in, fetchTicks, analyzeDigits]);

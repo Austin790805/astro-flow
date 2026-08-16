@@ -108,6 +108,8 @@ const BulkTrader: React.FC = () => {
     const openContractsRef = useRef<Map<string, TradeRecord>>(new Map());
     const currentBatchContractsRef = useRef<Set<string>>(new Set());
     const contractSubIdRef = useRef<string | null>(null);
+    const processedContractsRef = useRef<Set<string>>(new Set());
+    const batchCountRef = useRef<number>(0);
 
     const getLastDigit = useCallback((quote: string): number => {
         const quoteStr = quote.replace('.', '');
@@ -151,12 +153,12 @@ const BulkTrader: React.FC = () => {
             // Forget previous subscription if exists
             if (subscriptionIdRef.current) {
                 try {
-                    await api_base.api.forget(subscriptionIdRef.current);
+                    await (api_base.api as any).forget(subscriptionIdRef.current);
                 } catch { /* ignore */ }
                 subscriptionIdRef.current = null;
             }
 
-            const response = await api_base.api?.send({
+            const response = await (api_base.api as any)?.send({
                 ticks_history: selectedMarket,
                 subscribe: 1,
                 end: 'latest',
@@ -243,25 +245,28 @@ const BulkTrader: React.FC = () => {
             // Handle contract updates (proposal_open_contract)
             if (data?.msg_type === 'proposal_open_contract') {
                 const poc = data.proposal_open_contract;
-                if (poc && poc.contract_id && openContractsRef.current.has(poc.contract_id)) {
-                    if (poc.is_sold) {
-                        const sellPrice = parseFloat(poc.sell_price) || 0;
-                        const profit = parseFloat(poc.profit) || 0;
-                        const record = openContractsRef.current.get(poc.contract_id);
+                if (poc && poc.contract_id && poc.is_sold) {
+                    // Guard against duplicate processing: each contract is settled only once
+                    if (processedContractsRef.current.has(poc.contract_id)) return;
+                    processedContractsRef.current.add(poc.contract_id);
 
-                        if (record) {
-                            record.sellPrice = sellPrice;
-                            record.profit = profit;
-                            record.status = profit > 0 ? 'won' : 'lost';
-                            openContractsRef.current.delete(poc.contract_id);
-                            currentBatchContractsRef.current.delete(poc.contract_id);
+                    const sellPrice = parseFloat(poc.sell_price) || 0;
+                    const profit = parseFloat(poc.profit) || 0;
+                    const record = openContractsRef.current.get(poc.contract_id);
 
-                            setTradeHistory(prev => [...prev, { ...record }]);
-                            // Update run history result
-                            setRunHistory(prev => prev.map(run => {
-                                if (run.runNumber !== batchCount || !run.results.some(r => r.contractId === poc.contract_id)) {
-                                    return run;
-                                }
+                    if (record) {
+                        record.sellPrice = sellPrice;
+                        record.profit = profit;
+                        record.status = profit > 0 ? 'won' : 'lost';
+                        openContractsRef.current.delete(poc.contract_id);
+                        currentBatchContractsRef.current.delete(poc.contract_id);
+
+                        setTradeHistory(prev => [...prev, { ...record }]);
+                        // Update run history result using the ref batch count so the closure is always fresh
+                        const currentRun = batchCountRef.current;
+                        setRunHistory(prev =>
+                            prev.map(run => {
+                                if (run.runNumber !== currentRun) return run;
                                 return {
                                     ...run,
                                     results: run.results.map(r =>
@@ -270,19 +275,19 @@ const BulkTrader: React.FC = () => {
                                             : r
                                     ),
                                 };
-                            }));
-                            setTotalPayout(prev => prev + sellPrice);
-                            if (profit > 0) {
-                                setWonTrades(prev => prev + 1);
-                            } else {
-                                setLostTrades(prev => prev + 1);
-                            }
+                            })
+                        );
+                        setTotalPayout(prev => prev + sellPrice);
+                        if (profit > 0) {
+                            setWonTrades(prev => prev + 1);
+                        } else {
+                            setLostTrades(prev => prev + 1);
                         }
+                    }
 
-                        // Check if batch is complete
-                        if (currentBatchContractsRef.current.size === 0) {
-                            setIsRunning(false);
-                        }
+                    // Check if batch is complete
+                    if (currentBatchContractsRef.current.size === 0) {
+                        setIsRunning(false);
                     }
                 }
             }
@@ -291,10 +296,10 @@ const BulkTrader: React.FC = () => {
         return () => {
             messageSubscription.unsubscribe();
             if (contractSubIdRef.current) {
-                api_base.api?.forget(contractSubIdRef.current).catch(() => {});
+                (api_base.api as any)?.forget(contractSubIdRef.current).catch(() => {});
             }
             if (subscriptionIdRef.current) {
-                api_base.api?.forget(subscriptionIdRef.current).catch(() => {});
+                (api_base.api as any)?.forget(subscriptionIdRef.current).catch(() => {});
             }
         };
     }, [selectedMarket, tickCount, client.is_logged_in, fetchTicks, analyzeDigits]);
@@ -356,6 +361,7 @@ const BulkTrader: React.FC = () => {
 
         setIsRunning(true);
         setBatchCount(currentRunNumber);
+        batchCountRef.current = currentRunNumber;
         setErrorMessage('');
         setTotalStake(prev => prev + totalBatchStake);
 
@@ -494,10 +500,12 @@ const BulkTrader: React.FC = () => {
         setLostTrades(0);
         setTradeHistory([]);
         setBatchCount(0);
+        batchCountRef.current = 0;
         setRunHistory([]);
         setErrorMessage('');
         openContractsRef.current.clear();
         currentBatchContractsRef.current.clear();
+        processedContractsRef.current.clear();
         handleStop();
     };
 
@@ -509,11 +517,11 @@ const BulkTrader: React.FC = () => {
         setWonTrades(0);
         setLostTrades(0);
         setBatchCount(0);
+        batchCountRef.current = 0;
+        processedContractsRef.current.clear();
+        openContractsRef.current.clear();
+        currentBatchContractsRef.current.clear();
     };
-
-    // Calculate Even/Odd percentages
-    const evenPercentage = digitPercentages.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0);
-    const oddPercentage = digitPercentages.filter((_, i) => i % 2 !== 0).reduce((a, b) => a + b, 0);
 
     // Digit circle colors matching D Circle style
     const DIGIT_COLORS: Record<number, string> = {
@@ -551,8 +559,6 @@ const BulkTrader: React.FC = () => {
         }
     };
     const winningDigits = getWinningDigits();
-    const evenPercentage = digitPercentages.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0);
-    const oddPercentage = digitPercentages.filter((_, i) => i % 2 !== 0).reduce((a, b) => a + b, 0);
 
     return (
         <div className='bulk-trader'>
@@ -827,16 +833,15 @@ const BulkTrader: React.FC = () => {
             </div>
 
             {/* Trade History */}
-            {(tradeHistory.length > 0 || runHistory.length > 0) && (
-                <div className='trade-history'>
-                    <div className='trade-history-header'>
+            <div className='trade-history'>
+                <div className='trade-history-header'>
                         <h3 className='trade-history-title'>Trade History ({tradeHistory.length})</h3>
                         <button className='reset-btn' onClick={handleResetHistory}>
                             🔄 Reset History
                         </button>
-                    </div>
+                </div>
 
-                    {/* Run history */}
+                {/* Run history */}
                     {runHistory.length > 0 && (
                         <div className='run-history-list'>
                             {runHistory.map((run) => {
@@ -883,7 +888,13 @@ const BulkTrader: React.FC = () => {
                             })}
                         </div>
                     )}
-                    <div className='trade-history-list'>
+                <div className='trade-history-list'>
+                        {tradeHistory.length === 0 && runHistory.length === 0 && (
+                            <div className='trade-history-empty'>No trades executed yet — press START BULK TRADE to begin.</div>
+                        )}
+                        {runHistory.length > 0 && runHistory[0].results.length === 0 && tradeHistory.length === 0 && (
+                            <div className='trade-history-empty'>Run #{runHistory[0].runNumber} in progress — waiting for results…</div>
+                        )}
                         {tradeHistory.map((trade, idx) => (
                             <div
                                 key={trade.id}
@@ -910,9 +921,8 @@ const BulkTrader: React.FC = () => {
                                 </span>
                             </div>
                         ))}
-                    </div>
                 </div>
-            )}
+            </div>
 
             {/* Messages */}
             {errorMessage && (

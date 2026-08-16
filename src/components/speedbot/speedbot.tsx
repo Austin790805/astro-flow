@@ -123,6 +123,7 @@ const Speedbot: React.FC = () => {
     const subscriptionIdRef = useRef<string | null>(null);
     const processedContractsRef = useRef<Set<string>>(new Set());
     const connectionOpenRef = useRef(false);
+    const placeTradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastTickTimeRef = useRef<number>(0);
     const resubscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -179,11 +180,11 @@ const Speedbot: React.FC = () => {
         return req;
     }, [client.currency, barrierDigit]);
 
-    // Place a single trade for the current tick
+    // Place a single trade for the current tick (instant continuous trading)
     const placeTrade = useCallback(() => {
         if (!client.is_logged_in || !api_base.api || pendingTradeRef.current) return;
+        if (!isRunningRef.current) return;
 
-        // Fast mode: immediately mark busy; Normal mode: same but waits for trade result
         pendingTradeRef.current = true;
 
         const dir = directionRef.current;
@@ -219,11 +220,25 @@ const Speedbot: React.FC = () => {
                     pendingTradeRef.current = false;
                     const err = response?.error?.message || 'Trade failed';
                     console.error('[Speedbot] buy failed:', err);
+                    // Instant continuous mode: retry the trade immediately so the stream never breaks
+                    if (isRunningRef.current) {
+                        if (placeTradeTimerRef.current) clearTimeout(placeTradeTimerRef.current);
+                        placeTradeTimerRef.current = setTimeout(() => {
+                            pendingTradeRef.current = false;
+                            placeTrade();
+                        }, 300);
+                        return;
+                    }
                 }
             })
             .catch((err: any) => {
                 pendingTradeRef.current = false;
                 console.error('[Speedbot] buy error:', err);
+                // Instant continuous mode: retry the trade immediately so the stream never breaks
+                if (isRunningRef.current) {
+                    if (placeTradeTimerRef.current) clearTimeout(placeTradeTimerRef.current);
+                    placeTradeTimerRef.current = setTimeout(() => placeTrade(), 300);
+                }
             });
     }, [client.is_logged_in, buildBuyRequest, livePrice]);
 
@@ -349,8 +364,14 @@ const Speedbot: React.FC = () => {
             adjustStake(wasLoss);
             rotateDirection(wasLoss);
             pendingTradeRef.current = false;
+            // INSTANT CONTINUOUS TRADING: in normal mode, fire the next trade
+            // the moment this one settles — zero delay between trades.
+            // (Fast mode already queues the next trade on the next tick.)
+            if (executionSpeedRef.current === 'normal' && isRunningRef.current) {
+                placeTrade();
+            }
         },
-        [adjustStake, rotateDirection]
+        [adjustStake, rotateDirection, placeTrade]
     );
 
     // Tick handler — executes one trade per new tick
@@ -530,6 +551,10 @@ const Speedbot: React.FC = () => {
                 clearTimeout(retryTimerRef.current);
                 retryTimerRef.current = null;
             }
+            if (placeTradeTimerRef.current) {
+                clearTimeout(placeTradeTimerRef.current);
+                placeTradeTimerRef.current = null;
+            }
             if (subscriptionIdRef.current) {
                 (api_base.api as any)?.forget(subscriptionIdRef.current).catch(() => {});
             }
@@ -597,8 +622,11 @@ const Speedbot: React.FC = () => {
         isRunningRef.current = true;
         setIsRunning(true);
         setErrorMessage('');
-        // In fast mode, place the first trade immediately on the next incoming tick
         pendingTradeRef.current = false;
+        // INSTANT TRADING: fire the first trade right now — don't wait for the next tick
+        if (connectionOpenRef.current) {
+            placeTrade();
+        }
     };
 
     const handleStop = () => {
@@ -612,6 +640,10 @@ const Speedbot: React.FC = () => {
     };
 
     const handleReset = () => {
+        if (placeTradeTimerRef.current) {
+            clearTimeout(placeTradeTimerRef.current);
+            placeTradeTimerRef.current = null;
+        }
         handleStop();
         setTotalProfit(0);
         setTotalLoss(0);

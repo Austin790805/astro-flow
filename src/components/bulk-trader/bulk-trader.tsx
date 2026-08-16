@@ -77,7 +77,6 @@ const BulkTrader: React.FC = () => {
     const [tickHistory, setTickHistory] = useState<string[]>([]);
     const [lastDigit, setLastDigit] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(false);
-    const [isConnected, setIsConnected] = useState(false);
     const [isRunning, setIsRunning] = useState(false);
     const [totalStake, setTotalStake] = useState(0);
     const [totalPayout, setTotalPayout] = useState(0);
@@ -85,14 +84,14 @@ const BulkTrader: React.FC = () => {
     const [lostTrades, setLostTrades] = useState(0);
     const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
     const [batchCount, setBatchCount] = useState(0);
+    const [isApiReady, setIsApiReady] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
 
     const subscriptionIdRef = useRef<string | null>(null);
     const ticksArrayRef = useRef<TickData[]>([]);
     const openContractsRef = useRef<Map<string, TradeRecord>>(new Map());
     const currentBatchContractsRef = useRef<Set<string>>(new Set());
-    const isRunningRef = useRef(false);
-    const contractUpdateSubscriptionRef = useRef<any>(null);
-    const tickSubscriptionRef = useRef<any>(null);
+    const contractSubIdRef = useRef<string | null>(null);
 
     const getLastDigit = useCallback((quote: string): number => {
         const quoteStr = quote.replace('.', '');
@@ -121,71 +120,82 @@ const BulkTrader: React.FC = () => {
         setLastDigit(lastD);
         setTicks(tickData);
         setLivePrice(lastTick.quote);
+        setIsApiReady(true);
     }, [getLastDigit]);
 
-    const subscribeToTicks = useCallback(async () => {
-        if (!client.is_logged_in || !api_base.api) return;
+    const fetchTicks = useCallback(async () => {
+        if (!client.is_logged_in || !api_base.api) {
+            setIsApiReady(false);
+            return;
+        }
 
         setIsLoading(true);
+        setErrorMessage('');
         try {
-            // Unsubscribe from previous tick subscription
+            // Forget previous subscription if exists
             if (subscriptionIdRef.current) {
-                api_base.api.send({ forget: subscriptionIdRef.current }).catch(() => {});
+                try {
+                    await api_base.api.forget(subscriptionIdRef.current);
+                } catch { /* ignore */ }
                 subscriptionIdRef.current = null;
             }
 
-            const response = await api_base.api.send({
+            const response = await api_base.api?.send({
                 ticks_history: selectedMarket,
                 subscribe: 1,
                 end: 'latest',
-                count: tickCount,
+                count: Math.min(tickCount, 1000),
                 style: 'ticks',
-            }) as any;
+            });
 
             if (response) {
+                const resp = response as any;
                 let tickData: TickData[] = [];
 
-                if (response.ticks_history && Array.isArray(response.ticks_history)) {
-                    tickData = response.ticks_history.map((t: any) => ({
+                if (resp.ticks_history && Array.isArray(resp.ticks_history)) {
+                    tickData = resp.ticks_history.map((t: any) => ({
                         quote: String(t.quote),
                         epoch: t.epoch,
                     }));
-                    subscriptionIdRef.current = response.subscription?.id || null;
-                } else if (response.tick) {
-                    tickData = [{ quote: String(response.tick.quote), epoch: response.tick.epoch }];
-                    subscriptionIdRef.current = response.subscription?.id || response.tick.id || null;
+                    subscriptionIdRef.current = resp.subscription?.id || null;
+                } else if (resp.tick) {
+                    tickData = [{ quote: String(resp.tick.quote), epoch: resp.tick.epoch }];
+                    subscriptionIdRef.current = resp.subscription?.id || null;
                 }
 
                 if (tickData.length > 0) {
                     ticksArrayRef.current = tickData;
                     analyzeDigits(tickData);
-                    setIsConnected(true);
+                    setIsApiReady(true);
                 }
             }
-        } catch (error) {
-            console.error('Error subscribing to ticks:', error);
-            setIsConnected(false);
+        } catch (error: any) {
+            console.error('Error fetching ticks:', error);
+            setErrorMessage(error?.message || 'Failed to connect to market data');
+            setIsApiReady(false);
         }
         setIsLoading(false);
     }, [selectedMarket, tickCount, client.is_logged_in, analyzeDigits]);
 
-    // Subscribe to contract updates (proposal_open_contract stream)
+    // Subscribe to ticks and contract updates
     useEffect(() => {
         if (!client.is_logged_in || !api_base.api) return;
 
-        subscribeToTicks();
+        fetchTicks();
 
-        // Subscribe to contract updates via proposal_open_contract stream
+        // Subscribe to contract updates via proposal_open_contract
         const contractSub = api_base.api.send({
             proposal_open_contract: 1,
             subscribe: 1,
         }) as any;
 
-        contractSub.then((resp: any) => {
-            if (resp?.subscription?.id) {
-                tickSubscriptionRef.current = resp.subscription.id;
-            }
-        }).catch(() => {});
+        if (contractSub?.then) {
+            contractSub.then((resp: any) => {
+                if (resp?.subscription?.id) {
+                    contractSubIdRef.current = resp.subscription.id;
+                }
+            }).catch(() => {});
+        }
 
         // Listen for messages
         const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
@@ -208,7 +218,7 @@ const BulkTrader: React.FC = () => {
                 analyzeDigits(updatedTicks);
             }
 
-            // Handle contract updates
+            // Handle contract updates (proposal_open_contract)
             if (data?.msg_type === 'proposal_open_contract') {
                 const poc = data.proposal_open_contract;
                 if (poc && poc.contract_id && currentBatchContractsRef.current.has(poc.contract_id)) {
@@ -224,7 +234,6 @@ const BulkTrader: React.FC = () => {
                             openContractsRef.current.delete(poc.contract_id);
                             currentBatchContractsRef.current.delete(poc.contract_id);
 
-                            // Update trade history
                             setTradeHistory(prev => [...prev, { ...record }]);
                             setTotalPayout(prev => prev + sellPrice);
                             if (profit > 0) {
@@ -235,9 +244,8 @@ const BulkTrader: React.FC = () => {
                         }
 
                         // Check if batch is complete
-                        if (currentBatchContractsRef.current.size === 0 && isRunningRef.current) {
-                            // Batch complete - continue if still running
-                            // The bot will automatically start next batch on the next tick
+                        if (currentBatchContractsRef.current.size === 0) {
+                            setIsRunning(false);
                         }
                     }
                 }
@@ -246,23 +254,14 @@ const BulkTrader: React.FC = () => {
 
         return () => {
             messageSubscription.unsubscribe();
-            contractSub?.then?.((sub: any) => {
-                if (sub?.subscription?.id && api_base.api) {
-                    api_base.api.send({ forget: sub.subscription.id }).catch(() => {});
-                }
-            });
-            if (subscriptionIdRef.current && api_base.api) {
-                api_base.api.send({ forget: subscriptionIdRef.current }).catch(() => {});
+            if (contractSubIdRef.current) {
+                api_base.api?.forget(contractSubIdRef.current).catch(() => {});
+            }
+            if (subscriptionIdRef.current) {
+                api_base.api?.forget(subscriptionIdRef.current).catch(() => {});
             }
         };
-    }, [selectedMarket, tickCount, client.is_logged_in, subscribeToTicks, analyzeDigits]);
-
-    // Re-subscribe when market or tick count changes
-    useEffect(() => {
-        if (client.is_logged_in && !isRunning) {
-            subscribeToTicks();
-        }
-    }, [selectedMarket, tickCount, client.is_logged_in]);
+    }, [selectedMarket, tickCount, client.is_logged_in, fetchTicks, analyzeDigits]);
 
     const getContractType = (directionVal: string): string => {
         switch (tradeType) {
@@ -280,24 +279,24 @@ const BulkTrader: React.FC = () => {
     };
 
     const executeBatch = useCallback(async () => {
-        if (!client.is_logged_in || !api_base.api) return;
+        if (!client.is_logged_in || !api_base.api) {
+            setErrorMessage('Please log in to trade');
+            return;
+        }
 
         const stakeAmount = parseFloat(stake) || 0.5;
         const numTradesInt = parseInt(numTrades) || 1;
         const contractType = getContractType(direction);
         const totalBatchStake = stakeAmount * numTradesInt;
 
-        // Mark as running
-        isRunningRef.current = true;
         setIsRunning(true);
         setBatchCount(prev => prev + 1);
-
-        // Update total stake
+        setErrorMessage('');
         setTotalStake(prev => prev + totalBatchStake);
 
         try {
-            // Buy all contracts simultaneously
-            const buyRequests = [];
+            // Build all buy requests
+            const buyRequests: any[] = [];
             for (let i = 0; i < numTradesInt; i++) {
                 const buyRequest: any = {
                     buy: 1,
@@ -313,7 +312,7 @@ const BulkTrader: React.FC = () => {
                     },
                 };
 
-                // Add barrier for digit contracts
+                // Add barrier for digit contracts (over/under, match/differ)
                 if (['DIGITOVER', 'DIGITUNDER', 'DIGITMATCH', 'DIGITDIFF'].includes(contractType)) {
                     buyRequest.parameters.barrier = lastDigit.toString();
                 }
@@ -321,11 +320,14 @@ const BulkTrader: React.FC = () => {
                 buyRequests.push(buyRequest);
             }
 
-            // Send all buy requests simultaneously (instant execution, zero delay)
-            const buyPromises = buyRequests.map(req => api_base.api!.send(req));
+            // Send all buy requests simultaneously with zero delay
+            const buyPromises = buyRequests.map(req => api_base.api.send(req));
             const responses = await Promise.all(buyPromises);
 
-            // Track all contracts in this batch
+            // Process responses
+            let successCount = 0;
+            let failCount = 0;
+
             responses.forEach((response: any) => {
                 if (response?.buy?.contract_id) {
                     const contractId = response.buy.contract_id;
@@ -342,24 +344,37 @@ const BulkTrader: React.FC = () => {
                         timestamp: Date.now(),
                     };
                     openContractsRef.current.set(contractId, record);
+                    successCount++;
                 } else if (response?.error) {
                     console.error('Buy error:', response.error);
+                    setErrorMessage(response.error?.message || 'Trade failed');
+                    failCount++;
                     setLostTrades(prev => prev + 1);
                 }
             });
 
-        } catch (error) {
+            // If no contracts were bought and no errors, something went wrong
+            if (successCount === 0 && failCount === 0) {
+                setErrorMessage('No trades executed - check your connection');
+                setIsRunning(false);
+            }
+
+        } catch (error: any) {
             console.error('Error executing batch:', error);
+            setErrorMessage(error?.message || 'Failed to execute trades');
+            setIsRunning(false);
         }
     }, [client.is_logged_in, client.currency, stake, numTrades, direction, tradeType, lastDigit, selectedMarket]);
 
     const handleStart = useCallback(() => {
-        if (!client.is_logged_in || !api_base.api) return;
+        if (!client.is_logged_in || !api_base.api) {
+            setErrorMessage('Please log in to trade');
+            return;
+        }
         executeBatch();
     }, [client.is_logged_in, executeBatch]);
 
     const handleStop = useCallback(() => {
-        isRunningRef.current = false;
         setIsRunning(false);
         currentBatchContractsRef.current.clear();
     }, []);
@@ -371,6 +386,7 @@ const BulkTrader: React.FC = () => {
         setLostTrades(0);
         setTradeHistory([]);
         setBatchCount(0);
+        setErrorMessage('');
         openContractsRef.current.clear();
         currentBatchContractsRef.current.clear();
         handleStop();
@@ -379,13 +395,6 @@ const BulkTrader: React.FC = () => {
     // Calculate Even/Odd percentages
     const evenPercentage = digitPercentages.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0);
     const oddPercentage = digitPercentages.filter((_, i) => i % 2 !== 0).reduce((a, b) => a + b, 0);
-
-    // Calculate Rise/Fall
-    const riseCount = ticks.filter((_, i) => i > 0 && parseFloat(ticks[i].quote) > parseFloat(ticks[i - 1].quote)).length;
-    const fallCount = ticks.filter((_, i) => i > 0 && parseFloat(ticks[i].quote) < parseFloat(ticks[i - 1].quote)).length;
-    const totalMoves = riseCount + fallCount;
-    const risePercentage = totalMoves > 0 ? (riseCount / totalMoves) * 100 : 0;
-    const fallPercentage = totalMoves > 0 ? (fallCount / totalMoves) * 100 : 0;
 
     return (
         <div className='bulk-trader'>
@@ -403,7 +412,7 @@ const BulkTrader: React.FC = () => {
                         value={selectedMarket}
                         onChange={(e) => {
                             setSelectedMarket(e.target.value);
-                            handleStop();
+                            setIsApiReady(false);
                         }}
                     >
                         {MARKET_OPTIONS.map((market) => (
@@ -422,7 +431,6 @@ const BulkTrader: React.FC = () => {
                         onChange={(e) => {
                             const newType = e.target.value;
                             setTradeType(newType);
-                            // Reset direction to first option of new type
                             const options = DIRECTION_OPTIONS[newType];
                             if (options && options.length > 0) {
                                 setDirection(options[0].value);
@@ -458,7 +466,11 @@ const BulkTrader: React.FC = () => {
                         type='number'
                         className='ticks-input'
                         value={tickCount}
-                        onChange={(e) => setTickCount(Math.max(100, Math.min(1000, parseInt(e.target.value) || 1000)))}
+                        onChange={(e) => {
+                            const val = Math.max(100, Math.min(1000, parseInt(e.target.value) || 1000));
+                            setTickCount(val);
+                            setIsApiReady(false);
+                        }}
                         min={100}
                         max={1000}
                     />
@@ -538,15 +550,15 @@ const BulkTrader: React.FC = () => {
                 </div>
             </div>
 
-            {/* Start/Stop Button */}
+            {/* Start/Stop Button - only disabled when NOT logged in */}
             <div className='bulk-trader-actions'>
                 {!isRunning ? (
                     <button
                         className='start-btn'
                         onClick={handleStart}
-                        disabled={!client.is_logged_in || !isConnected}
+                        disabled={!client.is_logged_in}
                     >
-                        🚀 START BULK TRADE
+                        {isLoading ? '⏳ Connecting...' : '🚀 START BULK TRADE'}
                     </button>
                 ) : (
                     <button className='stop-btn' onClick={handleStop}>
@@ -615,15 +627,20 @@ const BulkTrader: React.FC = () => {
                 </div>
             )}
 
-            {/* Warnings */}
+            {/* Messages */}
+            {errorMessage && (
+                <div className='bulk-trader-error'>
+                    ⚠️ {errorMessage}
+                </div>
+            )}
             {!client.is_logged_in && (
                 <div className='bulk-trader-warning'>
                     Please log in to start trading.
                 </div>
             )}
-            {client.is_logged_in && !isConnected && !isLoading && (
+            {client.is_logged_in && !isApiReady && !isLoading && !errorMessage && (
                 <div className='bulk-trader-warning'>
-                    Waiting for market data...
+                    Connecting to market data... Please wait.
                 </div>
             )}
             {isLoading && (

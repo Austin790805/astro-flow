@@ -103,6 +103,9 @@ const Speedbot: React.FC = () => {
 
     const processedContractsRef = useRef<Set<string>>(new Set());
     const placeTradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const tickSubscriptionIdRef = useRef<string | null>(null);
+    const lastTickEpochRef = useRef(0);
+    const tickWatchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const disposedRef = useRef(false);
     const isRunningRef = useRef(false);
     const pendingTradeRef = useRef(false);
@@ -350,14 +353,17 @@ const Speedbot: React.FC = () => {
         [adjustStake, rotateDirection, placeTrade]
     );
 
-    // Tick handler — executes one trade per new tick
+    // Tick handler — executes one trade per new tick (unique by epoch, so duplicate
+    // messages never double-trade; dedupe works because epoch increments every tick)
     const handleNewTick = useCallback(
         (tick: { quote: string; epoch: number }) => {
-            if (!isRunningRef.current || !pendingTradeRef.current) {
+            if (!isRunningRef.current) {
                 setLivePrice(tick.quote);
                 setLastDigitState(getLastDigit(tick.quote, pipSize));
+                return;
             }
-            if (!isRunningRef.current) return;
+            if (tick.epoch > 0 && tick.epoch === lastTickEpochRef.current) return; // duplicate tick
+            lastTickEpochRef.current = tick.epoch || lastTickEpochRef.current;
             setLivePrice(tick.quote);
             setLastDigitState(getLastDigit(tick.quote, pipSize));
             if (pendingTradeRef.current) return; // normal mode waits for settlement
@@ -366,12 +372,59 @@ const Speedbot: React.FC = () => {
         [pipSize, placeTrade]
     );
 
-    // Trade on every tick — ticks arrive through the global message stream (server broadcast);
-    // no separate tick subscription is needed, so nothing can fail and block trading.
+    // Keep a live tick subscription active so the server streams ticks continuously.
+    // The Deriv API does NOT broadcast ticks unless a ticks_history/subscribe subscription
+    // exists — without it, the message listener silently receives nothing and the bot
+    // appears to trade once then stop. This resubscribes whenever the subscription is lost.
+    const subscribeToTicks = useCallback(async () => {
+        if (!client.is_logged_in || !api_base.api) return;
+
+        // Drop the previous subscription for this market so we never accumulate streams
+        if (tickSubscriptionIdRef.current) {
+            try {
+                await (api_base.api as any).send({ forget: tickSubscriptionIdRef.current });
+            } catch (e) {
+                // ignore
+            }
+            tickSubscriptionIdRef.current = null;
+        }
+
+        try {
+            const resp = await (api_base.api as any).send({
+                ticks_history: selectedMarketRef.current,
+                subscribe: 1,
+                end: 'latest',
+                count: 1,
+                style: 'ticks',
+            });
+            if (resp?.subscription?.id) {
+                tickSubscriptionIdRef.current = resp.subscription.id;
+            } else if (resp?.tick?.id) {
+                tickSubscriptionIdRef.current = resp.tick.id;
+            }
+            if (resp?.tick) {
+                handleNewTick({
+                    quote: formatPadded(resp.tick.quote ?? ''),
+                    epoch: resp.tick.epoch ?? 0,
+                });
+            }
+        } catch (e) {
+            // Network hiccup — the watchdog will retry
+            tickSubscriptionIdRef.current = null;
+        }
+    }, [client.is_logged_in, formatPadded, handleNewTick]);
+
+    // Trade on every tick — the message listener receives live ticks ONLY while a
+    // ticks_history/subscribe subscription is active, so this effect (a) opens the live
+    // tick subscription, (b) forwards incoming ticks to the trade engine, and (c) runs a
+    // watchdog that re-subscribes every few seconds if ticks stop arriving, guaranteeing
+    // the bot never silently stops trading.
     useEffect(() => {
         if (!client.is_logged_in || !api_base.api) return;
         isRunningRef.current = false;
         disposedRef.current = false;
+        tickSubscriptionIdRef.current = null;
+        lastTickEpochRef.current = 0;
 
         const contractSub = (api_base.api.send as any)({
             proposal_open_contract: 1,
@@ -381,13 +434,35 @@ const Speedbot: React.FC = () => {
             contractSub.catch(() => {});
         }
 
+        // Open the live tick subscription so the server actually streams ticks
+        subscribeToTicks();
+
+        // Watchdog: if no tick arrived for TICK_WATCHDOG_MS, re-subscribe. This keeps
+        // the stream alive even if the server silently drops a subscription.
+        if (tickWatchdogTimerRef.current) clearInterval(tickWatchdogTimerRef.current);
+        const lastSeenRef = { current: 0 };
+        tickWatchdogTimerRef.current = setInterval(() => {
+            if (!isRunningRef.current) return;
+            const now = Date.now();
+            if (lastSeenRef.current && now - lastSeenRef.current > 8000) {
+                lastSeenRef.current = now;
+                subscribeToTicks();
+            }
+        }, 5000);
+
         const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
             // Live tick stream — execute a trade on every tick of the selected market
             if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarketRef.current || data.symbol === selectedMarketRef.current)) {
+                lastSeenRef.current = Date.now();
                 const tick = {
                     quote: formatPadded(data.tick?.quote ?? data.price ?? ''),
                     epoch: data.tick?.epoch ?? data.epoch ?? 0,
                 };
+                if (data.subscription?.id) {
+                    tickSubscriptionIdRef.current = data.subscription.id;
+                } else if (data.tick?.id) {
+                    tickSubscriptionIdRef.current = data.tick.id;
+                }
                 handleNewTick(tick);
             }
 
@@ -403,12 +478,20 @@ const Speedbot: React.FC = () => {
         return () => {
             disposedRef.current = true;
             messageSubscription.unsubscribe();
+            if (tickWatchdogTimerRef.current) {
+                clearInterval(tickWatchdogTimerRef.current);
+                tickWatchdogTimerRef.current = null;
+            }
             if (placeTradeTimerRef.current) {
                 clearTimeout(placeTradeTimerRef.current);
                 placeTradeTimerRef.current = null;
             }
+            if (tickSubscriptionIdRef.current && api_base.api) {
+                (api_base.api as any).send({ forget: tickSubscriptionIdRef.current }).catch(() => {});
+                tickSubscriptionIdRef.current = null;
+            }
         };
-    }, [client.is_logged_in, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement]);
+    }, [client.is_logged_in, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement, subscribeToTicks]);
 
     // Keep refs synced with UI state
     useEffect(() => {
@@ -421,7 +504,10 @@ const Speedbot: React.FC = () => {
         selectedMarketRef.current = selectedMarket;
         setLivePrice('--');
         setLastDigitState(null);
-    }, [selectedMarket]);
+        lastTickEpochRef.current = 0;
+        // Re-subscribe to the new market's tick stream so trading stays continuous
+        if (client.is_logged_in && api_base.api) subscribeToTicks();
+    }, [selectedMarket, client.is_logged_in, subscribeToTicks]);
     useEffect(() => {
         ticksRef.current = Math.max(1, Math.min(10, parseInt(ticks) || 1));
     }, [ticks]);

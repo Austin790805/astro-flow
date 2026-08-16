@@ -3,6 +3,7 @@ import classNames from 'classnames';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
 import { api_base } from '@/external/bot-skeleton';
+import { useApiBase } from '@/hooks/useApiBase';
 import './bulk-trader.scss';
 
 // Market options
@@ -86,6 +87,7 @@ const BulkTrader: React.FC = () => {
     const [batchCount, setBatchCount] = useState(0);
     const [isApiReady, setIsApiReady] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const { isAuthorized, connectionStatus } = useApiBase();
 
     const subscriptionIdRef = useRef<string | null>(null);
     const ticksArrayRef = useRef<TickData[]>([]);
@@ -283,6 +285,14 @@ const BulkTrader: React.FC = () => {
             setErrorMessage('Please log in to trade');
             return;
         }
+        if (connectionStatus !== 'opened') {
+            setErrorMessage('Not connected to server. Please wait...');
+            return;
+        }
+        if (!isAuthorized) {
+            setErrorMessage('Account not authorized. Please wait...');
+            return;
+        }
 
         const stakeAmount = parseFloat(stake) || 0.5;
         const numTradesInt = parseInt(numTrades) || 1;
@@ -299,7 +309,7 @@ const BulkTrader: React.FC = () => {
             const buyRequests: any[] = [];
             for (let i = 0; i < numTradesInt; i++) {
                 const buyRequest: any = {
-                    buy: 1,
+                    buy: '1',
                     price: stakeAmount,
                     parameters: {
                         amount: stakeAmount,
@@ -320,8 +330,25 @@ const BulkTrader: React.FC = () => {
                 buyRequests.push(buyRequest);
             }
 
-            // Send all buy requests simultaneously with zero delay
-            const buyPromises = buyRequests.map(req => api_base.api.send(req));
+            // Send all buy requests simultaneously with retry logic (zero delay between requests)
+            const buyPromises = buyRequests.map(async (req) => {
+                let lastError: any = null;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const response = await api_base.api.send(req);
+                        return response;
+                    } catch (error: any) {
+                        lastError = error;
+                        // Retry on PriceMoved or temporary failures
+                        if (error?.error?.code !== 'PriceMoved' && attempt < 2) {
+                            break; // Don't retry on permanent errors
+                        }
+                        // Wait briefly before retrying (100ms)
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+                throw lastError;
+            });
             const responses = await Promise.all(buyPromises);
 
             // Process responses

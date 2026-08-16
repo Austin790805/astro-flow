@@ -530,3 +530,144 @@
     color: #4CAF50;
     border: 1px solid rgba(76, 175, 80, 0.3);
 }
+
+// Digit legend
+.digit-legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 4px 0 12px 0;
+
+    .legend-item {
+        font-size: 11px;
+        color: #8899aa;
+
+        &.legend-current {
+            color: #FF1744;
+            font-weight: 600;
+        }
+    }
+}
+
+// Digit select (for over/under, match/differ)
+.digit-select {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid #2a4060;
+    background: #1a2d42;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    width: 100%;
+    cursor: pointer;
+    appearance: auto;
+
+    option {
+        background: #1a2d42;
+        color: #fff;
+    }
+}
+
+// Digit circle variants (D Circle style highlighting)
+.digit-circle {
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+
+    &--winning {
+        animation: pulse-ring 1.5s ease-in-out infinite;
+    }
+
+    &--barrier {
+        animation: pulse-ring 1.5s ease-in-out infinite;
+    }
+}
+
+// Run history
+.run-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.run-history-item {
+    background: #0d1b2a;
+    border: 1px solid #1a2d42;
+    border-radius: 6px;
+    padding: 6px 10px;
+
+    &--complete {
+        border-color: #2a4a6b;
+    }
+}
+
+.run-history-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11px;
+
+    .run-history-num {
+        font-weight: 700;
+        color: #4A6BFF;
+    }
+
+    .run-history-type {
+        color: #fff;
+        font-weight: 600;
+    }
+
+    .run-history-barrier {
+        color: #FF9800;
+        font-weight: 600;
+    }
+
+    .run-history-count {
+        color: #8899aa;
+    }
+
+    .run-history-wl {
+        color: #4CAF50;
+        font-weight: 600;
+    }
+
+    .run-history-pnl {
+        font-weight: 700;
+
+        &--pos { color: #4CAF50; }
+        &--neg { color: #FF1744; }
+    }
+
+    .run-history-time {
+        color: #556677;
+        margin-left: auto;
+    }
+}
+
+.run-history-trades {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.run-trade-chip {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+
+    &--won {
+        background: rgba(76, 175, 80, 0.15);
+        color: #4CAF50;
+        border: 1px solid rgba(76, 175, 80, 0.4);
+    }
+
+    &--lost {
+        background: rgba(255, 23, 68, 0.1);
+        color: #FF5267;
+        border: 1px solid rgba(255, 23, 68, 0.3);
+    }
+}

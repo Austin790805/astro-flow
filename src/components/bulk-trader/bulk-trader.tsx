@@ -64,6 +64,18 @@ type TradeRecord = {
     timestamp: number;
 };
 
+type RunRecord = {
+    runNumber: number;
+    contractType: string;
+    direction: string;
+    barrier: string | null;
+    numTrades: number;
+    stake: number;
+    totalStake: number;
+    timestamp: number;
+    results: { contractId: string; profit: number; status: 'won' | 'lost'; sellPrice: number }[];
+};
+
 const BulkTrader: React.FC = () => {
     const { client } = useStore();
     const [selectedMarket, setSelectedMarket] = useState('1HZ100V');
@@ -72,6 +84,7 @@ const BulkTrader: React.FC = () => {
     const [tickCount, setTickCount] = useState(1000);
     const [stake, setStake] = useState('5');
     const [numTrades, setNumTrades] = useState('10');
+    const [barrierDigit, setBarrierDigit] = useState('5');
     const [ticks, setTicks] = useState<TickData[]>([]);
     const [livePrice, setLivePrice] = useState<string>('--');
     const [digitPercentages, setDigitPercentages] = useState<number[]>(Array(10).fill(0));
@@ -86,6 +99,7 @@ const BulkTrader: React.FC = () => {
     const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
     const [batchCount, setBatchCount] = useState(0);
     const [isApiReady, setIsApiReady] = useState(false);
+    const [runHistory, setRunHistory] = useState<RunRecord[]>([]);
     const [errorMessage, setErrorMessage] = useState('');
     const { isAuthorized, connectionStatus } = useApiBase();
 
@@ -170,6 +184,16 @@ const BulkTrader: React.FC = () => {
                     analyzeDigits(tickData);
                     setIsApiReady(true);
                 }
+
+                // Auto-set a sensible default barrier when over/under or match/differ selected
+                if (tickData.length > 0 && ['overunder', 'matchdiff'].includes(tradeType)) {
+                    const d = getLastDigit(tickData[tickData.length - 1].quote);
+                    setBarrierDigit(
+                        ['overunder', 'matchdiff'].includes(tradeType)
+                            ? String(tradeType === 'overunder' ? Math.max(0, Math.min(8, d)) : d)
+                            : String(d)
+                    );
+                }
             }
         } catch (error: any) {
             console.error('Error fetching ticks:', error);
@@ -177,7 +201,7 @@ const BulkTrader: React.FC = () => {
             setIsApiReady(false);
         }
         setIsLoading(false);
-    }, [selectedMarket, tickCount, client.is_logged_in, analyzeDigits]);
+    }, [selectedMarket, tickCount, client.is_logged_in, analyzeDigits, getLastDigit, tradeType]);
 
     // Subscribe to ticks and contract updates
     useEffect(() => {
@@ -237,6 +261,20 @@ const BulkTrader: React.FC = () => {
                             currentBatchContractsRef.current.delete(poc.contract_id);
 
                             setTradeHistory(prev => [...prev, { ...record }]);
+                            // Update run history result
+                            setRunHistory(prev => prev.map(run => {
+                                if (run.runNumber !== batchCount || !run.results.some(r => r.contractId === poc.contract_id)) {
+                                    return run;
+                                }
+                                return {
+                                    ...run,
+                                    results: run.results.map(r =>
+                                        r.contractId === poc.contract_id
+                                            ? { ...r, profit, status: profit > 0 ? 'won' : 'lost', sellPrice }
+                                            : r
+                                    ),
+                                };
+                            }));
                             setTotalPayout(prev => prev + sellPrice);
                             if (profit > 0) {
                                 setWonTrades(prev => prev + 1);
@@ -280,6 +318,20 @@ const BulkTrader: React.FC = () => {
         }
     };
 
+    const getBarrierDigit = (): string => {
+        if (['overunder', 'matchdiff'].includes(tradeType)) {
+            const d = parseInt(barrierDigit) || 5;
+            if (tradeType === 'overunder') {
+                // For Over/Under, valid barrier is 1-8 for over (last digit > barrier)
+                // Under: last digit < barrier. 0 can't be 'over' anything, 9 can't be 'under' anything.
+                return String(Math.max(1, Math.min(8, d)));
+            }
+            // Match/Differ: barrier can be 0-9
+            return String(Math.max(0, Math.min(9, d)));
+        }
+        return '';
+    };
+
     const executeBatch = useCallback(async () => {
         if (!client.is_logged_in || !api_base.api) {
             setErrorMessage('Please log in to trade');
@@ -298,11 +350,33 @@ const BulkTrader: React.FC = () => {
         const numTradesInt = parseInt(numTrades) || 1;
         const contractType = getContractType(direction);
         const totalBatchStake = stakeAmount * numTradesInt;
+        const barrier = getBarrierDigit();
+        const currentRunNumber = batchCount + 1;
+
+        // Validate barrier for digit contracts
+        if (['DIGITOVER', 'DIGITUNDER', 'DIGITMATCH', 'DIGITDIFF'].includes(contractType) && !barrier) {
+            setErrorMessage('Please select a barrier digit');
+            return;
+        }
 
         setIsRunning(true);
-        setBatchCount(prev => prev + 1);
+        setBatchCount(currentRunNumber);
         setErrorMessage('');
         setTotalStake(prev => prev + totalBatchStake);
+
+        // Create run history record
+        const runRecord: RunRecord = {
+            runNumber: currentRunNumber,
+            contractType,
+            direction,
+            barrier: barrier || null,
+            numTrades: numTradesInt,
+            stake: stakeAmount,
+            totalStake: totalBatchStake,
+            timestamp: Date.now(),
+            results: [],
+        };
+        setRunHistory(prev => [runRecord, ...prev]);
 
         try {
             // Build all buy requests
@@ -322,9 +396,9 @@ const BulkTrader: React.FC = () => {
                     },
                 };
 
-                // Add barrier for digit contracts (over/under, match/differ)
+                // Add barrier for digit contracts (over/under, match/differ) using SELECTED digit
                 if (['DIGITOVER', 'DIGITUNDER', 'DIGITMATCH', 'DIGITDIFF'].includes(contractType)) {
-                    buyRequest.parameters.barrier = lastDigit.toString();
+                    buyRequest.parameters.barrier = barrier;
                 }
 
                 buyRequests.push(buyRequest);
@@ -371,6 +445,18 @@ const BulkTrader: React.FC = () => {
                         timestamp: Date.now(),
                     };
                     openContractsRef.current.set(contractId, record);
+                    // Track in run history
+                    setRunHistory(prev => prev.map(run =>
+                        run.runNumber === currentRunNumber
+                            ? {
+                                  ...run,
+                                  results: [
+                                      ...run.results,
+                                      { contractId, profit: 0, status: 'won', sellPrice: 0 },
+                                  ],
+                              }
+                            : run
+                    ));
                     successCount++;
                 } else if (response?.error) {
                     console.error('Buy error:', response.error);
@@ -391,7 +477,7 @@ const BulkTrader: React.FC = () => {
             setErrorMessage(error?.message || 'Failed to execute trades');
             setIsRunning(false);
         }
-    }, [client.is_logged_in, client.currency, stake, numTrades, direction, tradeType, lastDigit, selectedMarket]);
+    }, [client.is_logged_in, client.currency, stake, numTrades, direction, tradeType, barrierDigit, selectedMarket, batchCount]);
 
     const handleStart = useCallback(() => {
         if (!client.is_logged_in || !api_base.api) {
@@ -413,13 +499,63 @@ const BulkTrader: React.FC = () => {
         setLostTrades(0);
         setTradeHistory([]);
         setBatchCount(0);
+        setRunHistory([]);
         setErrorMessage('');
         openContractsRef.current.clear();
         currentBatchContractsRef.current.clear();
         handleStop();
     };
 
+    const handleResetHistory = () => {
+        setTradeHistory([]);
+        setRunHistory([]);
+        setTotalStake(0);
+        setTotalPayout(0);
+        setWonTrades(0);
+        setLostTrades(0);
+        setBatchCount(0);
+    };
+
     // Calculate Even/Odd percentages
+    const evenPercentage = digitPercentages.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0);
+    const oddPercentage = digitPercentages.filter((_, i) => i % 2 !== 0).reduce((a, b) => a + b, 0);
+
+    // Digit circle colors matching D Circle style
+    const DIGIT_COLORS: Record<number, string> = {
+        0: '#4A6BFF',
+        1: '#4A6BFF',
+        2: '#4A6BFF',
+        3: '#4A6BFF',
+        4: '#4CAF50',
+        5: '#FF9800',
+        6: '#FF9800',
+        7: '#4CAF50',
+        8: '#FF1744',
+        9: '#4A6BFF',
+    };
+
+    // Get set of winning digits for current trade type/direction (for circle highlighting)
+    const getWinningDigits = (): number[] => {
+        switch (tradeType) {
+            case 'evenodd':
+                return direction === 'even' ? [0, 2, 4, 6, 8] : [1, 3, 5, 7, 9];
+            case 'overunder': {
+                const b = parseInt(barrierDigit) || 5;
+                return direction === 'over'
+                    ? Array.from({ length: 9 - b }, (_, i) => b + 1 + i)
+                    : Array.from({ length: b }, (_, i) => i);
+            }
+            case 'matchdiff': {
+                const b = parseInt(barrierDigit) || 5;
+                return direction === 'match' ? [b] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].filter(d => d !== b);
+            }
+            case 'risefall':
+                return []; // Rise/Fall not digit-based
+            default:
+                return [];
+        }
+    };
+    const winningDigits = getWinningDigits();
     const evenPercentage = digitPercentages.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0);
     const oddPercentage = digitPercentages.filter((_, i) => i % 2 !== 0).reduce((a, b) => a + b, 0);
 
@@ -487,6 +623,27 @@ const BulkTrader: React.FC = () => {
                     </select>
                 </div>
 
+                {/* Digit selector for Over/Under and Match/Differ */}
+                {['overunder', 'matchdiff'].includes(tradeType) && (
+                    <div className='control-group'>
+                        <label className='control-label'>DIGIT</label>
+                        <select
+                            className='digit-select'
+                            value={barrierDigit}
+                            onChange={(e) => setBarrierDigit(e.target.value)}
+                        >
+                            {(tradeType === 'overunder'
+                                ? [1, 2, 3, 4, 5, 6, 7, 8]
+                                : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+                            ).map((d) => (
+                                <option key={d} value={String(d)}>
+                                    {d}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 <div className='control-group'>
                     <label className='control-label'>NUMBER OF TICKS TO SCAN</label>
                     <input
@@ -510,26 +667,86 @@ const BulkTrader: React.FC = () => {
                 <span className='current-tick-value'>{livePrice}</span>
             </div>
 
-            {/* Digit Circles */}
+            {/* Digit Circles - D Circle style highlighting */}
             <div className='digit-circles-grid'>
-                {[0, 1, 2, 3, 4].map((digit) => (
-                    <div
-                        key={digit}
-                        className={classNames('digit-circle', { 'digit-circle--active': lastDigit === digit })}
-                    >
-                        <span className='digit-value'>{digit}</span>
-                        <span className='digit-pct'>{digitPercentages[digit]?.toFixed(2) || '0.00'}%</span>
-                    </div>
-                ))}
-                {[5, 6, 7, 8, 9].map((digit) => (
-                    <div
-                        key={digit}
-                        className={classNames('digit-circle', { 'digit-circle--active': lastDigit === digit })}
-                    >
-                        <span className='digit-value'>{digit}</span>
-                        <span className='digit-pct'>{digitPercentages[digit]?.toFixed(2) || '0.00'}%</span>
-                    </div>
-                ))}
+                {[0, 1, 2, 3, 4].map((digit) => {
+                    const isCurrent = lastDigit === digit;
+                    const isWinning = winningDigits.includes(digit);
+                    const isBarrier = barrierDigit === String(digit);
+                    return (
+                        <div
+                            key={digit}
+                            className={classNames('digit-circle', {
+                                'digit-circle--active': isCurrent,
+                                'digit-circle--winning': isWinning && !isCurrent,
+                                'digit-circle--barrier': isBarrier && !isCurrent,
+                            })}
+                            style={{
+                                borderColor: isCurrent
+                                    ? '#FF1744'
+                                    : isBarrier
+                                    ? '#FF9800'
+                                    : isWinning
+                                    ? '#4CAF50'
+                                    : DIGIT_COLORS[digit],
+                                borderWidth: isCurrent ? '3px' : '2px',
+                                boxShadow: isCurrent
+                                    ? '0 0 12px rgba(255, 23, 68, 0.5)'
+                                    : isWinning || isBarrier
+                                    ? '0 0 10px rgba(74, 107, 255, 0.4)'
+                                    : '0 0 8px rgba(74, 107, 255, 0.2)',
+                            }}
+                        >
+                            <span className='digit-value'>{digit}</span>
+                            <span className='digit-pct'>{digitPercentages[digit]?.toFixed(2) || '0.00'}%</span>
+                        </div>
+                    );
+                })}
+                {[5, 6, 7, 8, 9].map((digit) => {
+                    const isCurrent = lastDigit === digit;
+                    const isWinning = winningDigits.includes(digit);
+                    const isBarrier = barrierDigit === String(digit);
+                    return (
+                        <div
+                            key={digit}
+                            className={classNames('digit-circle', {
+                                'digit-circle--active': isCurrent,
+                                'digit-circle--winning': isWinning && !isCurrent,
+                                'digit-circle--barrier': isBarrier && !isCurrent,
+                            })}
+                            style={{
+                                borderColor: isCurrent
+                                    ? '#FF1744'
+                                    : isBarrier
+                                    ? '#FF9800'
+                                    : isWinning
+                                    ? '#4CAF50'
+                                    : DIGIT_COLORS[digit],
+                                borderWidth: isCurrent ? '3px' : '2px',
+                                boxShadow: isCurrent
+                                    ? '0 0 12px rgba(255, 23, 68, 0.5)'
+                                    : isWinning || isBarrier
+                                    ? '0 0 10px rgba(74, 107, 255, 0.4)'
+                                    : '0 0 8px rgba(74, 107, 255, 0.2)',
+                            }}
+                        >
+                            <span className='digit-value'>{digit}</span>
+                            <span className='digit-pct'>{digitPercentages[digit]?.toFixed(2) || '0.00'}%</span>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className='digit-legend'>
+                {tradeType === 'evenodd' && (
+                    <span className='legend-item'>● Winning digits highlighted in green</span>
+                )}
+                {['overunder', 'matchdiff'].includes(tradeType) && (
+                    <>
+                        <span className='legend-item'>🟠 Selected digit: {barrierDigit}</span>
+                        <span className='legend-item'>● Winning digits highlighted in green</span>
+                    </>
+                )}
+                <span className='legend-item legend-current'>◆ Current digit: {lastDigit}</span>
             </div>
 
             {/* Tick History */}
@@ -615,14 +832,62 @@ const BulkTrader: React.FC = () => {
             </div>
 
             {/* Trade History */}
-            {tradeHistory.length > 0 && (
+            {(tradeHistory.length > 0 || runHistory.length > 0) && (
                 <div className='trade-history'>
                     <div className='trade-history-header'>
                         <h3 className='trade-history-title'>Trade History ({tradeHistory.length})</h3>
-                        <button className='reset-btn' onClick={handleReset}>
-                            🔄 Reset
+                        <button className='reset-btn' onClick={handleResetHistory}>
+                            🔄 Reset History
                         </button>
                     </div>
+
+                    {/* Run history */}
+                    {runHistory.length > 0 && (
+                        <div className='run-history-list'>
+                            {runHistory.map((run) => {
+                                const runResultTrades = tradeHistory.filter(t => {
+                                    const rec = run.results.find(r => r.contractId === t.id);
+                                    return !!rec;
+                                });
+                                const won = runResultTrades.filter(t => t.status === 'won').length;
+                                const lost = runResultTrades.filter(t => t.status === 'lost').length;
+                                const payout = runResultTrades.reduce((sum, t) => sum + t.sellPrice, 0);
+                                const isComplete = runResultTrades.length === run.numTrades;
+                                return (
+                                    <div key={run.runNumber} className={classNames('run-history-item', { 'run-history-item--complete': isComplete })}>
+                                        <div className='run-history-row'>
+                                            <span className='run-history-num'>Run #{run.runNumber}</span>
+                                            <span className='run-history-type'>{run.contractType} • {run.direction}</span>
+                                            {run.barrier !== null && (
+                                                <span className='run-history-barrier'>Digit {run.barrier}</span>
+                                            )}
+                                            <span className='run-history-count'>{runResultTrades.length}/{run.numTrades}</span>
+                                            <span className='run-history-wl'>W:{won} L:{lost}</span>
+                                            <span className={classNames('run-history-pnl', {
+                                                'run-history-pnl--pos': payout - run.totalStake >= 0,
+                                                'run-history-pnl--neg': payout - run.totalStake < 0,
+                                            })}>
+                                                Net: {(payout - run.totalStake) >= 0 ? '+' : ''}{(payout - run.totalStake).toFixed(2)} {client.currency || 'USD'}
+                                            </span>
+                                            <span className='run-history-time'>{new Date(run.timestamp).toLocaleTimeString()}</span>
+                                        </div>
+                                        {runResultTrades.length > 0 && (
+                                            <div className='run-history-trades'>
+                                                {runResultTrades.map((t, idx) => (
+                                                    <span key={t.id} className={classNames('run-trade-chip', {
+                                                        'run-trade-chip--won': t.status === 'won',
+                                                        'run-trade-chip--lost': t.status === 'lost',
+                                                    })}>
+                                                        #{idx + 1} {t.profit > 0 ? '+' : ''}{t.profit.toFixed(2)}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                     <div className='trade-history-list'>
                         {tradeHistory.map((trade, idx) => (
                             <div

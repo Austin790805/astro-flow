@@ -4,27 +4,8 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
 import { api_base } from '@/external/bot-skeleton';
 import { useApiBase } from '@/hooks/useApiBase';
-import { connectionStatus$ } from '@/external/bot-skeleton/services/api/observables/connection-status-stream';
 import { getLastDigit, PIP_SIZE_BY_SYMBOL, formatQuote } from '@/utils/digit-analysis';
 import './speedbot.scss';
-
-const SEND_TIMEOUT_MS = 15000;
-
-// Wrap an api.send promise with a timeout — the Deriv API send() hangs forever
-// when the socket is reconnecting, so we force a rejection to allow retry logic.
-const sendWithTimeout = (promise: Promise<any>, ms: number = SEND_TIMEOUT_MS): Promise<any> =>
-    new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Market data request timed out')), ms);
-        Promise.resolve(promise)
-            .then((v) => {
-                clearTimeout(timer);
-                resolve(v);
-            })
-            .catch((e) => {
-                clearTimeout(timer);
-                reject(e);
-            });
-    });
 
 // All synthetic markets supported by the Speedbot
 const MARKET_OPTIONS = [
@@ -89,7 +70,7 @@ type TradeEntry = {
 
 const Speedbot: React.FC = () => {
     const { client } = useStore();
-    const { isAuthorized, connectionStatus } = useApiBase();
+    const { connectionStatus } = useApiBase(); void connectionStatus;
 
     // Configuration
     const [selectedMarket, setSelectedMarket] = useState('1HZ100V');
@@ -120,13 +101,8 @@ const Speedbot: React.FC = () => {
     const [errorMessage, setErrorMessage] = useState('');
     const [lastDigit, setLastDigitState] = useState<number | null>(null);
 
-    const subscriptionIdRef = useRef<string | null>(null);
     const processedContractsRef = useRef<Set<string>>(new Set());
-    const connectionOpenRef = useRef(false);
     const placeTradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const lastTickTimeRef = useRef<number>(0);
-    const resubscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const disposedRef = useRef(false);
     const isRunningRef = useRef(false);
     const pendingTradeRef = useRef(false);
@@ -390,143 +366,28 @@ const Speedbot: React.FC = () => {
         [pipSize, placeTrade]
     );
 
-    // Subscribe to ticks and contract updates
+    // Trade on every tick — ticks arrive through the global message stream (server broadcast);
+    // no separate tick subscription is needed, so nothing can fail and block trading.
     useEffect(() => {
         if (!client.is_logged_in || !api_base.api) return;
         isRunningRef.current = false;
-
         disposedRef.current = false;
-        lastTickTimeRef.current = Date.now();
-
-        let retryAttempt = 0;
-        const MAX_RETRIES = 5;
-
-        const fetchTicks = async (retrying: boolean = false) => {
-            // Never hammer the socket while it is reconnecting; wait for the connection to open
-            if (!connectionOpenRef.current) {
-                setErrorMessage('Waiting for connection...');
-                return;
-            }
-            try {
-                if (subscriptionIdRef.current) {
-                    try {
-                        await sendWithTimeout((api_base.api as any).forget(subscriptionIdRef.current), 8000);
-                    } catch {
-                        /* ignore */
-                    }
-                    subscriptionIdRef.current = null;
-                }
-                const response = await sendWithTimeout(
-                    (api_base.api as any)?.send({
-                        ticks_history: selectedMarketRef.current,
-                        subscribe: 1,
-                        end: 'latest',
-                        count: 500,
-                        style: 'ticks',
-                    })
-                );
-                const resp = response as any;
-
-                // Handle API-level errors (e.g. rate limits) as retryable
-                if (resp?.error) {
-                    throw new Error(resp.error.message || 'Market data error');
-                }
-
-                const histPrices: string[] = [];
-                if (resp?.history && Array.isArray(resp.history.prices)) {
-                    resp.history.prices.forEach((p: any) => histPrices.push(String(p)));
-                }
-                if (histPrices.length > 0) {
-                    const lastQuote = formatPadded(histPrices[histPrices.length - 1]);
-                    setLivePrice(lastQuote);
-                    setLastDigitState(getLastDigitPadded(lastQuote));
-                } else if (resp?.tick) {
-                    const q = formatPadded(resp.tick.quote);
-                    setLivePrice(q);
-                    setLastDigitState(getLastDigitPadded(q));
-                    subscriptionIdRef.current = resp.subscription?.id || null;
-                    lastTickTimeRef.current = Date.now();
-                }
-
-                // Successful (re)subscription — clear any error and stop retrying
-                retryAttempt = 0;
-                if (retrying) {
-                    setErrorMessage('');
-                }
-                startWatchdog();
-            } catch (err: any) {
-                // Transient failure: back off and retry; never abort the run.
-                // If the socket is down, the retry timer waits for it to reopen instead of looping.
-                retryAttempt++;
-                console.warn('[Speedbot] tick stream error, retry', retryAttempt, err?.message);
-                if (disposedRef.current) return;
-                const waitUntil =
-                    retryAttempt > MAX_RETRIES ? 10000 : Math.min(2000 * Math.pow(2, Math.min(retryAttempt, 5)), 30000);
-                if (retryAttempt > MAX_RETRIES) {
-                    setErrorMessage('Market data reconnecting — trades will resume automatically');
-                } else {
-                    setErrorMessage(`Reconnecting market data... (attempt ${retryAttempt}/${MAX_RETRIES})`);
-                }
-                if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-                retryTimerRef.current = setTimeout(() => fetchTicks(true), waitUntil);
-            }
-        };
-
-        const startWatchdog = () => {
-            if (resubscribeTimerRef.current) clearTimeout(resubscribeTimerRef.current);
-            resubscribeTimerRef.current = setInterval(() => {
-                if (disposedRef.current) return;
-                // If no ticks received for 15s while running, resubscribe silently
-                if (Date.now() - lastTickTimeRef.current > 15000) {
-                    console.warn('[Speedbot] tick stream stalled, resubscribing');
-                    lastTickTimeRef.current = Date.now();
-                    fetchTicks(true);
-                }
-            }, 3000);
-        };
-
-        fetchTicks();
-
-        // Watch the connection: resubscribe immediately when it reopens, and pause retries while closed
-        const connectionSubscription = connectionStatus$.subscribe((status: any) => {
-            connectionOpenRef.current = status === 'opened';
-            if (status === 'opened' && !disposedRef.current) {
-                // Fresh (re)connection — resubscribe right away
-                if (retryTimerRef.current) {
-                    clearTimeout(retryTimerRef.current);
-                    retryTimerRef.current = null;
-                }
-                retryAttempt = 0;
-                setErrorMessage('');
-                fetchTicks(true);
-            }
-        });
-        connectionOpenRef.current = connectionStatus === 'opened';
 
         const contractSub = (api_base.api.send as any)({
             proposal_open_contract: 1,
             subscribe: 1,
         });
         if (contractSub?.then) {
-            contractSub
-                .then((resp: any) => {
-                    if (resp?.subscription?.id) {
-                        // global poc subscription id kept internally by api; ignore
-                        void resp;
-                    }
-                })
-                .catch(() => {});
+            contractSub.catch(() => {});
         }
 
         const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
-            // Live tick stream
+            // Live tick stream — execute a trade on every tick of the selected market
             if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarketRef.current || data.symbol === selectedMarketRef.current)) {
                 const tick = {
                     quote: formatPadded(data.tick?.quote ?? data.price ?? ''),
                     epoch: data.tick?.epoch ?? data.epoch ?? 0,
                 };
-                if (data.subscription?.id) subscriptionIdRef.current = data.subscription.id;
-                lastTickTimeRef.current = Date.now();
                 handleNewTick(tick);
             }
 
@@ -542,24 +403,12 @@ const Speedbot: React.FC = () => {
         return () => {
             disposedRef.current = true;
             messageSubscription.unsubscribe();
-            connectionSubscription.unsubscribe();
-            if (resubscribeTimerRef.current) {
-                clearInterval(resubscribeTimerRef.current);
-                resubscribeTimerRef.current = null;
-            }
-            if (retryTimerRef.current) {
-                clearTimeout(retryTimerRef.current);
-                retryTimerRef.current = null;
-            }
             if (placeTradeTimerRef.current) {
                 clearTimeout(placeTradeTimerRef.current);
                 placeTradeTimerRef.current = null;
             }
-            if (subscriptionIdRef.current) {
-                (api_base.api as any)?.forget(subscriptionIdRef.current).catch(() => {});
-            }
         };
-    }, [client.is_logged_in, connectionStatus, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement]);
+    }, [client.is_logged_in, formatPadded, getLastDigitPadded, handleNewTick, handleSettlement]);
 
     // Keep refs synced with UI state
     useEffect(() => {
@@ -624,9 +473,7 @@ const Speedbot: React.FC = () => {
         setErrorMessage('');
         pendingTradeRef.current = false;
         // INSTANT TRADING: fire the first trade right now — don't wait for the next tick
-        if (connectionOpenRef.current) {
-            placeTrade();
-        }
+        placeTrade();
     };
 
     const handleStop = () => {

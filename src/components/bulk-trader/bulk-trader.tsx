@@ -98,6 +98,8 @@ const BulkTrader: React.FC = () => {
     const [totalPayout, setTotalPayout] = useState(0);
     const [wonTrades, setWonTrades] = useState(0);
     const [lostTrades, setLostTrades] = useState(0);
+    const [totalProfit, setTotalProfit] = useState(0);
+    const [totalLoss, setTotalLoss] = useState(0);
     const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
     const [batchCount, setBatchCount] = useState(0);
     const [duration, setDuration] = useState<string>('1');
@@ -298,8 +300,10 @@ const BulkTrader: React.FC = () => {
                         setTotalPayout(prev => prev + sellPrice);
                         if (profit > 0) {
                             setWonTrades(prev => prev + 1);
+                            setTotalProfit(prev => prev + profit);
                         } else {
                             setLostTrades(prev => prev + 1);
+                            setTotalLoss(prev => prev + Math.abs(profit));
                         }
                     }
 
@@ -417,25 +421,16 @@ const BulkTrader: React.FC = () => {
                 buyRequests.push(buyRequest);
             }
 
-            // Send all buy requests simultaneously with retry logic (zero delay between requests)
-            const buyPromises = buyRequests.map(async (req) => {
-                let lastError: any = null;
-                for (let attempt = 0; attempt < 3; attempt++) {
-                    try {
-                        const response = await api_base.api.send(req);
-                        return response;
-                    } catch (error: any) {
-                        lastError = error;
-                        // Retry on PriceMoved or temporary failures
-                        if (error?.error?.code !== 'PriceMoved' && attempt < 2) {
-                            break; // Don't retry on permanent errors
-                        }
-                        // Wait briefly before retrying (100ms)
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-                }
-                throw lastError;
-            });
+            // Send all buy requests simultaneously with zero delay between requests
+            const buyPromises = buyRequests.map((req) =>
+                (api_base.api as any)
+                    .send(req)
+                    .then((response: any) => response)
+                    .catch((error: any) => {
+                        console.error('Buy request failed:', error?.error || error);
+                        return { error: error?.error || { message: error?.message || 'Failed' } };
+                    })
+            );
             const responses = await Promise.all(buyPromises);
 
             // Process responses
@@ -510,6 +505,8 @@ const BulkTrader: React.FC = () => {
         setTotalPayout(0);
         setWonTrades(0);
         setLostTrades(0);
+        setTotalProfit(0);
+        setTotalLoss(0);
         setTradeHistory([]);
         setBatchCount(0);
         batchCountRef.current = 0;
@@ -528,6 +525,8 @@ const BulkTrader: React.FC = () => {
         setTotalPayout(0);
         setWonTrades(0);
         setLostTrades(0);
+        setTotalProfit(0);
+        setTotalLoss(0);
         setBatchCount(0);
         batchCountRef.current = 0;
         processedContractsRef.current.clear();
@@ -848,6 +847,14 @@ const BulkTrader: React.FC = () => {
                 <div className='stat-item'>
                     <span className='stat-label'>Lost</span>
                     <span className='stat-value stat-value--loss'>{lostTrades}</span>
+                </div>
+                <div className='stat-item'>
+                    <span className='stat-label'>Profit</span>
+                    <span className='stat-value stat-value--profit'>+{totalProfit.toFixed(2)} {client.currency || 'USD'}</span>
+                </div>
+                <div className='stat-item'>
+                    <span className='stat-label'>Loss</span>
+                    <span className='stat-value stat-value--loss-stat'>-{totalLoss.toFixed(2)} {client.currency || 'USD'}</span>
                 </div>
             </div>
 

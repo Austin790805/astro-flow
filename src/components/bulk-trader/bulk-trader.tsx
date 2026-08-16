@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import classNames from 'classnames';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
@@ -63,6 +63,9 @@ type TradeRecord = {
     profit: number;
     status: 'won' | 'lost';
     timestamp: number;
+    entryTick?: string;
+    entryEpoch?: number;
+    entryDigit?: number;
 };
 
 type RunRecord = {
@@ -92,6 +95,9 @@ const BulkTrader: React.FC = () => {
     const [digitPercentages, setDigitPercentages] = useState<number[]>(Array(10).fill(0));
     const [tickHistory, setTickHistory] = useState<string[]>([]);
     const [lastDigit, setLastDigit] = useState<number>(0);
+    const [entryTickQuote, setEntryTickQuote] = useState<string>('');
+    const [entryTickEpoch, setEntryTickEpoch] = useState<number>(0);
+    const [entryTickDigit, setEntryTickDigit] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(false);
     const [isRunning, setIsRunning] = useState(false);
     const [totalStake, setTotalStake] = useState(0);
@@ -368,6 +374,18 @@ const BulkTrader: React.FC = () => {
         const barrier = getBarrierDigit();
         const currentRunNumber = batchCount + 1;
 
+        // Capture the exact entry tick snapshot so each contract is bound to the
+        // tick it was entered with — settlement always resolves on the NEXT tick
+        // after this entry tick, even if the live price has moved on.
+        const entryTick: TickData = ticksArrayRef.current.length > 0
+            ? ticksArrayRef.current[ticksArrayRef.current.length - 1]
+            : { quote: formatQuote(livePrice, pipSize), epoch: Date.now() / 1000 };
+        const entryDigit = getLastDigitPadded(entryTick.quote);
+
+        setEntryTickQuote(entryTick.quote);
+        setEntryTickEpoch(entryTick.epoch);
+        setEntryTickDigit(entryDigit);
+
         // Validate barrier for digit contracts
         if (['DIGITOVER', 'DIGITUNDER', 'DIGITMATCH', 'DIGITDIFF'].includes(contractType) && !barrier) {
             setErrorMessage('Please select a barrier digit');
@@ -451,6 +469,9 @@ const BulkTrader: React.FC = () => {
                         profit: 0,
                         status: 'won',
                         timestamp: Date.now(),
+                        entryTick: entryTick.quote,
+                        entryEpoch: entryTick.epoch,
+                        entryDigit,
                     };
                     openContractsRef.current.set(contractId, record);
                     // Track in run history
@@ -571,6 +592,17 @@ const BulkTrader: React.FC = () => {
     };
     const winningDigits = getWinningDigits();
 
+    // Entry vs current tick display helpers
+    const ticksBehind = useMemo(() => {
+        if (!entryTickEpoch || ticksArrayRef.current.length === 0) return 0;
+        const last = ticksArrayRef.current[ticksArrayRef.current.length - 1];
+        return Math.max(0, Math.round(last.epoch - entryTickEpoch));
+    }, [entryTickEpoch, lastDigit, tickHistory.length]);
+
+    const ticksBehindDisplay = ticksBehind > 0
+        ? `Trade entered ${ticksBehind} tick${ticksBehind > 1 ? 's' : ''} ago — settles on the next tick after entry`
+        : 'Ready — trade enters on the next tick after you press Start';
+
     return (
         <div className='bulk-trader'>
             {/* Header */}
@@ -673,10 +705,18 @@ const BulkTrader: React.FC = () => {
                 </div>
             </div>
 
-            {/* Current Tick */}
-            <div className='current-tick'>
-                <span className='current-tick-label'>CURRENT TICK</span>
-                <span className='current-tick-value'>{livePrice}</span>
+            {/* Entry Tick (stored tick the trade is bound to) and Current Tick */}
+            <div className='tick-pair'>
+                <div className='current-tick entry-tick'>
+                    <span className='current-tick-label'>ENTRY TICK</span>
+                    <span className='current-tick-value entry-tick-value'>{entryTickQuote || '--'}</span>
+                    <span className='entry-tick-detail'>Entry digit {entryTickQuote ? entryTickDigit : '–'} • {entryTickEpoch ? `Epoch ${entryTickEpoch}` : '–'}</span>
+                </div>
+                <div className='current-tick'>
+                    <span className='current-tick-label'>CURRENT TICK</span>
+                    <span className='current-tick-value'>{livePrice}</span>
+                    <span className='entry-tick-detail'>{ticksBehindDisplay}</span>
+                </div>
             </div>
 
             {/* Digit Circles - D Circle style highlighting */}

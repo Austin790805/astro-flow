@@ -4,7 +4,7 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
 import { api_base } from '@/external/bot-skeleton';
 import { useApiBase } from '@/hooks/useApiBase';
-import { getLastDigit, PIP_SIZE_BY_SYMBOL } from '@/utils/digit-analysis';
+import { getLastDigit, PIP_SIZE_BY_SYMBOL, formatQuote } from '@/utils/digit-analysis';
 import './bulk-trader.scss';
 
 // Market options
@@ -189,9 +189,9 @@ const BulkTrader: React.FC = () => {
                 }
 
                 if (histPrices.length > 0) {
-                    tickData = histPrices.map((quote, idx) => ({ quote, epoch: histEpochs[idx] ?? 0 }));
+                    tickData = histPrices.map((quote, idx) => ({ quote: formatQuote(quote, pipSize), epoch: histEpochs[idx] ?? 0 }));
                 } else if (resp.tick) {
-                    tickData = [{ quote: String(resp.tick.quote), epoch: resp.tick.epoch }];
+                    tickData = [{ quote: formatQuote(resp.tick.quote, pipSize), epoch: resp.tick.epoch }];
                     subscriptionIdRef.current = resp.subscription?.id || null;
                 }
 
@@ -240,7 +240,7 @@ const BulkTrader: React.FC = () => {
             // Handle tick updates
             if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarket || data.symbol === selectedMarket)) {
                 const newTick: TickData = {
-                    quote: String(data.tick?.quote ?? data.price ?? data.quote ?? ''),
+                    quote: formatQuote(data.tick?.quote ?? data.price ?? data.quote ?? '', pipSize),
                     epoch: data.tick?.epoch ?? data.epoch ?? 0,
                 };
 
@@ -354,11 +354,11 @@ const BulkTrader: React.FC = () => {
             return;
         }
         if (connectionStatus !== 'opened') {
-            setErrorMessage('Not connected to server. Please wait...');
+            setErrorMessage(`Not connected to server (status: ${connectionStatus}). Waiting for connection…`);
             return;
         }
         if (!isAuthorized) {
-            setErrorMessage('Account not authorized. Please wait...');
+            setErrorMessage('Account not authorized yet. Please wait a moment for login to complete…');
             return;
         }
 
@@ -811,15 +811,15 @@ const BulkTrader: React.FC = () => {
                 </div>
             </div>
 
-            {/* Start/Stop Button - only disabled when NOT logged in */}
+            {/* Start/Stop Button - disabled when not logged in, disconnected, or not authorized */}
             <div className='bulk-trader-actions'>
                 {!isRunning ? (
                     <button
                         className='start-btn'
                         onClick={handleStart}
-                        disabled={!client.is_logged_in}
+                        disabled={!client.is_logged_in || connectionStatus !== 'opened' || !isAuthorized}
                     >
-                        {isLoading ? '⏳ Connecting...' : '🚀 START BULK TRADE'}
+                        {isLoading ? '⏳ Connecting...' : !client.is_logged_in ? '🔒 Log in to trade' : connectionStatus !== 'opened' ? '⏳ Connecting...' : !isAuthorized ? '⏳ Authorizing...' : '🚀 START BULK TRADE'}
                     </button>
                 ) : (
                     <button className='stop-btn' onClick={handleStop}>
@@ -845,98 +845,6 @@ const BulkTrader: React.FC = () => {
                 <div className='stat-item'>
                     <span className='stat-label'>Lost</span>
                     <span className='stat-value stat-value--loss'>{lostTrades}</span>
-                </div>
-            </div>
-
-            {/* Trade History */}
-            <div className='trade-history'>
-                <div className='trade-history-header'>
-                        <h3 className='trade-history-title'>Trade History ({tradeHistory.length})</h3>
-                        <button className='reset-btn' onClick={handleResetHistory}>
-                            🔄 Reset History
-                        </button>
-                </div>
-
-                {/* Run history */}
-                    {runHistory.length > 0 && (
-                        <div className='run-history-list'>
-                            {runHistory.map((run) => {
-                                const runResultTrades = tradeHistory.filter(t => {
-                                    const rec = run.results.find(r => r.contractId === t.id);
-                                    return !!rec;
-                                });
-                                const won = runResultTrades.filter(t => t.status === 'won').length;
-                                const lost = runResultTrades.filter(t => t.status === 'lost').length;
-                                const payout = runResultTrades.reduce((sum, t) => sum + t.sellPrice, 0);
-                                const isComplete = runResultTrades.length === run.numTrades;
-                                return (
-                                    <div key={run.runNumber} className={classNames('run-history-item', { 'run-history-item--complete': isComplete })}>
-                                        <div className='run-history-row'>
-                                            <span className='run-history-num'>Run #{run.runNumber}</span>
-                                            <span className='run-history-type'>{run.contractType} • {run.direction}</span>
-                                            {run.barrier !== null && (
-                                                <span className='run-history-barrier'>Digit {run.barrier}</span>
-                                            )}
-                                            <span className='run-history-count'>{runResultTrades.length}/{run.numTrades}</span>
-                                            <span className='run-history-wl'>W:{won} L:{lost}</span>
-                                            <span className={classNames('run-history-pnl', {
-                                                'run-history-pnl--pos': payout - run.totalStake >= 0,
-                                                'run-history-pnl--neg': payout - run.totalStake < 0,
-                                            })}>
-                                                Net: {(payout - run.totalStake) >= 0 ? '+' : ''}{(payout - run.totalStake).toFixed(2)} {client.currency || 'USD'}
-                                            </span>
-                                            <span className='run-history-time'>{new Date(run.timestamp).toLocaleTimeString()}</span>
-                                        </div>
-                                        {runResultTrades.length > 0 && (
-                                            <div className='run-history-trades'>
-                                                {runResultTrades.map((t, idx) => (
-                                                    <span key={t.id} className={classNames('run-trade-chip', {
-                                                        'run-trade-chip--won': t.status === 'won',
-                                                        'run-trade-chip--lost': t.status === 'lost',
-                                                    })}>
-                                                        #{idx + 1} {t.profit > 0 ? '+' : ''}{t.profit.toFixed(2)}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                <div className='trade-history-list'>
-                        {tradeHistory.length === 0 && runHistory.length === 0 && (
-                            <div className='trade-history-empty'>No trades executed yet — press START BULK TRADE to begin.</div>
-                        )}
-                        {runHistory.length > 0 && runHistory[0].results.length === 0 && tradeHistory.length === 0 && (
-                            <div className='trade-history-empty'>Run #{runHistory[0].runNumber} in progress — waiting for results…</div>
-                        )}
-                        {tradeHistory.map((trade, idx) => (
-                            <div
-                                key={trade.id}
-                                className={classNames('trade-history-item', {
-                                    'trade-history-item--won': trade.status === 'won',
-                                    'trade-history-item--lost': trade.status === 'lost',
-                                })}
-                            >
-                                <span className='trade-history-index'>#{idx + 1}</span>
-                                <span className='trade-history-type'>{trade.contractType}</span>
-                                <span className='trade-history-dir'>{trade.direction}</span>
-                                <span className='trade-history-stake'>{trade.stake.toFixed(2)}</span>
-                                <span className={classNames('trade-history-profit', {
-                                    'trade-history-profit--positive': trade.profit > 0,
-                                    'trade-history-profit--negative': trade.profit <= 0,
-                                })}>
-                                    {trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}
-                                </span>
-                                <span className={classNames('trade-history-status', {
-                                    'trade-history-status--won': trade.status === 'won',
-                                    'trade-history-status--lost': trade.status === 'lost',
-                                })}>
-                                    {trade.status === 'won' ? '✓' : '✗'}
-                                </span>
-                            </div>
-                        ))}
                 </div>
             </div>
 

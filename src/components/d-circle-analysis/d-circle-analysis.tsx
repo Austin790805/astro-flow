@@ -3,7 +3,7 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
 import { api_base } from '@/external/bot-skeleton';
 import classNames from 'classnames';
-import { getLastDigit, PIP_SIZE_BY_SYMBOL } from '@/utils/digit-analysis';
+import { getLastDigit, PIP_SIZE_BY_SYMBOL, formatQuote } from '@/utils/digit-analysis';
 import './d-circle-analysis.scss';
 
 // Available synthetic index markets
@@ -407,15 +407,15 @@ const DCircleAnalysis: React.FC = () => {
                     }
                 } else if (resp.ticks_history && Array.isArray(resp.ticks_history)) {
                     resp.ticks_history.forEach((t: any) => {
-                        histPrices.push(String(t.quote));
+                        histPrices.push(formatQuote(t.quote, pipSize));
                         histEpochs.push(Number(t.epoch));
                     });
                 }
 
                 if (histPrices.length > 0) {
-                    tickData = histPrices.map((quote, idx) => ({ quote, epoch: histEpochs[idx] ?? 0 }));
+                    tickData = histPrices.map((quote, idx) => ({ quote: formatQuote(quote, pipSize), epoch: histEpochs[idx] ?? 0 }));
                 } else if (resp.tick) {
-                    tickData = [{ quote: String(resp.tick.quote), epoch: resp.tick.epoch }];
+                    tickData = [{ quote: formatQuote(resp.tick.quote, pipSize), epoch: resp.tick.epoch }];
                     subscriptionIdRef.current = resp.tick.id || null;
                 }
 
@@ -441,7 +441,7 @@ const DCircleAnalysis: React.FC = () => {
         const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
             if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarket || data.symbol === selectedMarket)) {
                 const newTick: TickData = {
-                    quote: String(data.tick?.quote ?? data.price ?? data.quote ?? ''),
+                    quote: formatQuote(data.tick?.quote ?? data.price ?? data.quote ?? '', pipSize),
                     epoch: data.tick?.epoch ?? data.epoch ?? 0,
                 };
 

@@ -4,6 +4,7 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '@/hooks/useStore';
 import { api_base } from '@/external/bot-skeleton';
 import { useApiBase } from '@/hooks/useApiBase';
+import { getLastDigit, PIP_SIZE_BY_SYMBOL } from '@/utils/digit-analysis';
 import './bulk-trader.scss';
 
 // Market options
@@ -111,10 +112,9 @@ const BulkTrader: React.FC = () => {
     const processedContractsRef = useRef<Set<string>>(new Set());
     const batchCountRef = useRef<number>(0);
 
-    const getLastDigit = useCallback((quote: string): number => {
-        const quoteStr = quote.replace('.', '');
-        return parseInt(quoteStr.charAt(quoteStr.length - 1));
-    }, []);
+    const pipSize = PIP_SIZE_BY_SYMBOL[selectedMarket] ?? 2;
+
+    const getLastDigitPadded = useCallback((quote: string | number): number => getLastDigit(quote, pipSize), [pipSize]);
 
     const analyzeDigits = useCallback((tickData: TickData[]) => {
         if (tickData.length === 0) return;
@@ -123,7 +123,7 @@ const BulkTrader: React.FC = () => {
         const history: string[] = [];
 
         tickData.forEach((tick) => {
-            const digit = getLastDigit(tick.quote);
+            const digit = getLastDigitPadded(tick.quote);
             digitCounts[digit]++;
             history.push(digit.toString());
         });
@@ -131,7 +131,7 @@ const BulkTrader: React.FC = () => {
         const total = tickData.length;
         const percentages = digitCounts.map((count) => (count / total) * 100);
         const lastTick = tickData[tickData.length - 1];
-        const lastD = getLastDigit(lastTick.quote);
+        const lastD = getLastDigitPadded(lastTick.quote);
 
         setDigitPercentages(percentages);
         setTickHistory(history);
@@ -139,7 +139,7 @@ const BulkTrader: React.FC = () => {
         setTicks(tickData);
         setLivePrice(lastTick.quote);
         setIsApiReady(true);
-    }, [getLastDigit]);
+    }, [getLastDigitPadded]);
 
     const fetchTicks = useCallback(async () => {
         if (!client.is_logged_in || !api_base.api) {
@@ -170,12 +170,26 @@ const BulkTrader: React.FC = () => {
                 const resp = response as any;
                 let tickData: TickData[] = [];
 
-                if (resp.ticks_history && Array.isArray(resp.ticks_history)) {
-                    tickData = resp.ticks_history.map((t: any) => ({
-                        quote: String(t.quote),
-                        epoch: t.epoch,
-                    }));
-                    subscriptionIdRef.current = resp.subscription?.id || null;
+                // New Deriv API response formats:
+                // - historical: resp.history = { prices: number[], times: number[] }
+                // - legacy: resp.ticks_history = [{ quote, epoch }...]
+                // - single live tick: resp.tick = { quote, epoch, id }
+                const histPrices: string[] = [];
+                const histEpochs: number[] = [];
+                if (resp.history && Array.isArray(resp.history.prices)) {
+                    resp.history.prices.forEach((p: any) => histPrices.push(String(p)));
+                    if (Array.isArray(resp.history.times)) {
+                        resp.history.times.forEach((t: any) => histEpochs.push(Number(t)));
+                    }
+                } else if (resp.ticks_history && Array.isArray(resp.ticks_history)) {
+                    resp.ticks_history.forEach((t: any) => {
+                        histPrices.push(String(t.quote));
+                        histEpochs.push(Number(t.epoch));
+                    });
+                }
+
+                if (histPrices.length > 0) {
+                    tickData = histPrices.map((quote, idx) => ({ quote, epoch: histEpochs[idx] ?? 0 }));
                 } else if (resp.tick) {
                     tickData = [{ quote: String(resp.tick.quote), epoch: resp.tick.epoch }];
                     subscriptionIdRef.current = resp.subscription?.id || null;
@@ -199,7 +213,7 @@ const BulkTrader: React.FC = () => {
             setIsApiReady(false);
         }
         setIsLoading(false);
-    }, [selectedMarket, tickCount, client.is_logged_in, analyzeDigits, getLastDigit, tradeType]);
+    }, [selectedMarket, tickCount, client.is_logged_in, analyzeDigits, getLastDigitPadded, tradeType]);
 
     // Subscribe to ticks and contract updates
     useEffect(() => {
@@ -224,14 +238,16 @@ const BulkTrader: React.FC = () => {
         // Listen for messages
         const messageSubscription = api_base.api.onMessage().subscribe(({ data }: any) => {
             // Handle tick updates
-            if (data?.msg_type === 'tick' && data.tick?.symbol === selectedMarket) {
+            if (data?.msg_type === 'tick' && (data.tick?.symbol === selectedMarket || data.symbol === selectedMarket)) {
                 const newTick: TickData = {
-                    quote: String(data.tick.quote),
-                    epoch: data.tick.epoch,
+                    quote: String(data.tick?.quote ?? data.price ?? data.quote ?? ''),
+                    epoch: data.tick?.epoch ?? data.epoch ?? 0,
                 };
 
                 if (data.subscription?.id) {
                     subscriptionIdRef.current = data.subscription.id;
+                } else if (data.tick?.id) {
+                    subscriptionIdRef.current = data.tick.id;
                 }
 
                 const updatedTicks = [...ticksArrayRef.current, newTick];

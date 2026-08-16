@@ -103,6 +103,10 @@ const Speedbot: React.FC = () => {
 
     const subscriptionIdRef = useRef<string | null>(null);
     const processedContractsRef = useRef<Set<string>>(new Set());
+    const lastTickTimeRef = useRef<number>(0);
+    const resubscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const disposedRef = useRef(false);
     const isRunningRef = useRef(false);
     const pendingTradeRef = useRef(false);
     const directionRef = useRef('even');
@@ -350,7 +354,13 @@ const Speedbot: React.FC = () => {
         if (!client.is_logged_in || !api_base.api) return;
         isRunningRef.current = false;
 
-        const fetchTicks = async () => {
+        disposedRef.current = false;
+        lastTickTimeRef.current = Date.now();
+
+        let retryAttempt = 0;
+        const MAX_RETRIES = 5;
+
+        const fetchTicks = async (retrying: boolean = false) => {
             try {
                 if (subscriptionIdRef.current) {
                     try {
@@ -368,6 +378,12 @@ const Speedbot: React.FC = () => {
                     style: 'ticks',
                 });
                 const resp = response as any;
+
+                // Handle API-level errors (e.g. rate limits) as retryable
+                if (resp?.error) {
+                    throw new Error(resp.error.message || 'Market data error');
+                }
+
                 const histPrices: string[] = [];
                 if (resp?.history && Array.isArray(resp.history.prices)) {
                     resp.history.prices.forEach((p: any) => histPrices.push(String(p)));
@@ -381,10 +397,49 @@ const Speedbot: React.FC = () => {
                     setLivePrice(q);
                     setLastDigitState(getLastDigitPadded(q));
                     subscriptionIdRef.current = resp.subscription?.id || null;
+                    lastTickTimeRef.current = Date.now();
                 }
+
+                // Successful (re)subscription — clear any error and stop retrying
+                retryAttempt = 0;
+                if (retrying) {
+                    setErrorMessage('');
+                }
+                startWatchdog();
             } catch (err: any) {
-                setErrorMessage(err?.message || 'Failed to load market data');
+                // Transient failure: back off and retry; never abort the run
+                const delay = Math.min(2000 * Math.pow(2, retryAttempt), 30000);
+                retryAttempt++;
+                console.warn('[Speedbot] tick stream error, retry', retryAttempt, err?.message);
+                if (retryAttempt <= MAX_RETRIES && !disposedRef.current) {
+                    setErrorMessage(`Reconnecting market data... (attempt ${retryAttempt}/${MAX_RETRIES})`);
+                    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                    retryTimerRef.current = setTimeout(() => fetchTicks(true), delay);
+                } else if (retryAttempt > MAX_RETRIES) {
+                    // Keep trying at a slower rate while the bot is running
+                    if (isRunningRef.current && !disposedRef.current) {
+                        setErrorMessage('Market data reconnecting — trades will resume automatically');
+                        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                        retryTimerRef.current = setTimeout(() => {
+                            retryAttempt = 0;
+                            fetchTicks(true);
+                        }, 10000);
+                    }
+                }
             }
+        };
+
+        const startWatchdog = () => {
+            if (resubscribeTimerRef.current) clearTimeout(resubscribeTimerRef.current);
+            resubscribeTimerRef.current = setInterval(() => {
+                if (disposedRef.current) return;
+                // If no ticks received for 15s while running, resubscribe silently
+                if (Date.now() - lastTickTimeRef.current > 15000) {
+                    console.warn('[Speedbot] tick stream stalled, resubscribing');
+                    lastTickTimeRef.current = Date.now();
+                    fetchTicks(true);
+                }
+            }, 3000);
         };
 
         fetchTicks();
@@ -412,6 +467,7 @@ const Speedbot: React.FC = () => {
                     epoch: data.tick?.epoch ?? data.epoch ?? 0,
                 };
                 if (data.subscription?.id) subscriptionIdRef.current = data.subscription.id;
+                lastTickTimeRef.current = Date.now();
                 handleNewTick(tick);
             }
 
@@ -425,7 +481,16 @@ const Speedbot: React.FC = () => {
         });
 
         return () => {
+            disposedRef.current = true;
             messageSubscription.unsubscribe();
+            if (resubscribeTimerRef.current) {
+                clearInterval(resubscribeTimerRef.current);
+                resubscribeTimerRef.current = null;
+            }
+            if (retryTimerRef.current) {
+                clearTimeout(retryTimerRef.current);
+                retryTimerRef.current = null;
+            }
             if (subscriptionIdRef.current) {
                 (api_base.api as any)?.forget(subscriptionIdRef.current).catch(() => {});
             }

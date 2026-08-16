@@ -26,3 +26,4 @@ export const MAX_STRATEGIES = 10;
 export const TAB_IDS = ['id-dbot-dashboard', 'id-bot-builder', 'id-d-circle', 'id-bulk-trader', 'id-speedbot', 'id-charts', 'id-tutorials'];
 
 export const DEBOUNCE_INTERVAL_TIME = 500;
+// Restore: reverted to pre-Free-Bots build (2026-08-16 21:00 UTC)

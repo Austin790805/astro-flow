@@ -353,14 +353,6 @@ const BulkTrader: React.FC = () => {
             setErrorMessage('Please log in to trade');
             return;
         }
-        if (connectionStatus !== 'opened') {
-            setErrorMessage(`Not connected to server (status: ${connectionStatus}). Waiting for connection…`);
-            return;
-        }
-        if (!isAuthorized) {
-            setErrorMessage('Account not authorized yet. Please wait a moment for login to complete…');
-            return;
-        }
 
         const stakeAmount = parseFloat(stake) || 0.5;
         const numTradesInt = parseInt(numTrades) || 1;
@@ -811,15 +803,15 @@ const BulkTrader: React.FC = () => {
                 </div>
             </div>
 
-            {/* Start/Stop Button - disabled when not logged in, disconnected, or not authorized */}
+            {/* Start/Stop Button */}
             <div className='bulk-trader-actions'>
                 {!isRunning ? (
                     <button
                         className='start-btn'
                         onClick={handleStart}
-                        disabled={!client.is_logged_in || connectionStatus !== 'opened' || !isAuthorized}
+                        disabled={!client.is_logged_in}
                     >
-                        {isLoading ? '⏳ Connecting...' : !client.is_logged_in ? '🔒 Log in to trade' : connectionStatus !== 'opened' ? '⏳ Connecting...' : !isAuthorized ? '⏳ Authorizing...' : '🚀 START BULK TRADE'}
+                        {isLoading ? '⏳ Connecting...' : '🚀 START BULK TRADE'}
                     </button>
                 ) : (
                     <button className='stop-btn' onClick={handleStop}>

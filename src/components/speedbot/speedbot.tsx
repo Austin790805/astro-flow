@@ -536,6 +536,9 @@ const Speedbot: React.FC = () => {
         contractTypeRef.current = contractType;
     }, [contractType]);
     useEffect(() => {
+        selectedMarketRef.current = selectedMarket;
+    }, [selectedMarket]);
+    useEffect(() => {
         ticksRef.current = Math.max(1, Math.min(10, parseInt(ticks) || 1));
     }, [ticks]);
     useEffect(() => {

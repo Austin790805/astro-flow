@@ -44,36 +44,45 @@ const CONTRACT_TYPES = [
     { value: 'risefall', label: 'Rise / Fall' },
 ];
 
-// Per-contract direction options
-const DIRECTION_TYPE = ['evenodd', 'overunder', 'matchdiff', 'risefall'] as const;
-type DirectionKey = (typeof DIRECTION_TYPE)[number];
-type DirectionOption = { value: string; label: string };
+    // Per-contract direction options
+    const DIRECTION_TYPE = ['evenodd', 'overunder', 'matchdiff', 'risefall'] as const;
+    type DirectionKey = (typeof DIRECTION_TYPE)[number];
+    type DirectionOption = { value: string; label: string };
 
-const CONTRACT_DIRECTIONS: Record<DirectionKey, Array<DirectionOption>> = {
-    evenodd: [
-        { value: 'even', label: 'Even' },
-        { value: 'odd', label: 'Odd' },
-    ],
-    overunder: [
-        { value: 'over', label: 'Over' },
-        { value: 'under', label: 'Under' },
-    ],
-    matchdiff: [
-        { value: 'match', label: 'Match' },
-        { value: 'diff', label: 'Differ' },
-    ],
-    risefall: [
-        { value: 'rise', label: 'Rise' },
-        { value: 'fall', label: 'Fall' },
-    ],
-};
+    const CONTRACT_DIRECTIONS: Record<DirectionKey, Array<DirectionOption>> = {
+        evenodd: [
+            { value: 'even', label: 'Even' },
+            { value: 'odd', label: 'Odd' },
+        ],
+        overunder: [
+            { value: 'over', label: 'Over' },
+            { value: 'under', label: 'Under' },
+        ],
+        matchdiff: [
+            { value: 'match', label: 'Match' },
+            { value: 'diff', label: 'Differ' },
+        ],
+        risefall: [
+            { value: 'rise', label: 'Rise' },
+            { value: 'fall', label: 'Fall' },
+        ],
+    };
 
-const CONTRACT_TYPE_MAP: Record<string, Record<string, string>> = {
-    evenodd: { even: 'DIGITEVEN', odd: 'DIGITODD' },
-    overunder: { over: 'DIGITOVER', under: 'DIGITUNDER' },
-    matchdiff: { match: 'DIGITMATCH', diff: 'DIGITDIFF' },
-    risefall: { rise: 'CALL', fall: 'PUT' },
-};
+    const CONTRACT_TYPE_MAP: Record<string, Record<string, string>> = {
+        evenodd: { even: 'DIGITEVEN', odd: 'DIGITODD' },
+        overunder: { over: 'DIGITOVER', under: 'DIGITUNDER' },
+        matchdiff: { match: 'DIGITMATCH', diff: 'DIGITDIFF' },
+        risefall: { rise: 'CALL', fall: 'PUT' },
+    };
+
+    // Digit strategy selector (replaces the old hardcoded '0' barrier).
+    // Chooses the digit contract pair (Over/Under OR Match/Differ) and the
+    // barrier digit 0-9 (zero counted as a digit everywhere).
+    const DIGIT_STRATEGIES: Array<{ value: 'overunder' | 'matchdiff'; label: string }> = [
+        { value: 'overunder', label: 'Over / Under' },
+        { value: 'matchdiff', label: 'Match / Differ' },
+    ];
+    const DIGIT_OPTIONS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 // Recoverable buy errors — DBot's doUntilDone retries these automatically
 // (identical error set used by the TradeEngine purchase loop)
@@ -103,6 +112,7 @@ const Speedbot: React.FC = () => {
     const [stake, setStake] = useState('0.5');
     const [takeProfit, setTakeProfit] = useState('10');
     const [stopLoss, setStopLoss] = useState('50');
+    const [selectedDigit, setSelectedDigit] = useState('0');
     const [alternateEvenOdd, setAlternateEvenOdd] = useState(false);
     const [alternateOnLoss, setAlternateOnLoss] = useState(false);
     const [martingaleEnabled, setMartingaleEnabled] = useState(true);
@@ -136,6 +146,7 @@ const Speedbot: React.FC = () => {
     const contractTypeRef = useRef('evenodd');
     const ticksRef = useRef(1);
     const alternateEvenOddRef = useRef(false);
+    const selectedDigitRef = useRef('0');
     const alternateOnLossRef = useRef(false);
     const martingaleEnabledRef = useRef(true);
     const martingaleMultiplierRef = useRef(1.15);
@@ -151,7 +162,9 @@ const Speedbot: React.FC = () => {
 
     const formatPadded = useCallback((q: string | number): string => formatQuote(q, pipSize), [pipSize]);
 
-    const barrierDigit = ['overunder', 'matchdiff'].includes(contractType) ? '0' : '';
+    // Barrier digit = the user's chosen digit 0-9 when a digit contract is active
+    const useDigitContracts = ['overunder', 'matchdiff'].includes(contractType);
+    const barrierDigit = useDigitContracts ? selectedDigit : '';
 
     // ---------------------------------------------------------------
     // DBot-style engine
@@ -175,10 +188,10 @@ const Speedbot: React.FC = () => {
             },
         };
         if (['overunder', 'matchdiff'].includes(contractTypeRef.current)) {
-            req.parameters.barrier = barrierDigit;
+            req.parameters.barrier = selectedDigitRef.current;
         }
         return req;
-    }, [client.currency, barrierDigit]);
+    }, [client.currency]);
 
     // DBot `doUntilDone`-style purchase: keeps re-sending the buy request until the
     // server accepts it, with progressive delays between attempts — exactly the same
@@ -548,6 +561,9 @@ const Speedbot: React.FC = () => {
         martingaleMultiplierRef.current = parseFloat(martingaleMultiplier) || 1.15;
     }, [martingaleMultiplier]);
     useEffect(() => {
+        selectedDigitRef.current = selectedDigit;
+    }, [selectedDigit]);
+    useEffect(() => {
         recoveryModeRef.current = recoveryMode;
     }, [recoveryMode]);
     useEffect(() => {
@@ -637,6 +653,11 @@ const Speedbot: React.FC = () => {
         if (opts && opts.length > 0) setDirection(opts[0].value);
     };
 
+    const handleDigitStrategyChange = (newType: 'overunder' | 'matchdiff') => {
+        setContractType(newType);
+        setDirection(CONTRACT_DIRECTIONS[newType][0].value);
+    };
+
     const netProfit = totalProfit - totalLoss;
 
     return (
@@ -686,7 +707,8 @@ const Speedbot: React.FC = () => {
                 <span className='speedbot-price'>{livePrice}</span>
             </div>
 
-            {/* Contract type */}
+            {/* Contract type (only for Even/Odd and Rise/Fall — digit strategies use their own selector below) */}
+            {!useDigitContracts && (
             <div className='speedbot-control-row'>
                 <select className='speedbot-select speedbot-select--contract' value={contractType} onChange={(e) => handleContractTypeChange(e.target.value)}>
                     {CONTRACT_TYPES.map((c) => (
@@ -696,6 +718,7 @@ const Speedbot: React.FC = () => {
                     ))}
                 </select>
             </div>
+            )}
 
             {/* Direction — single contract choice, zero counted as a digit */}
             {['evenodd', 'overunder', 'matchdiff', 'risefall'].includes(contractType) && (
@@ -704,12 +727,43 @@ const Speedbot: React.FC = () => {
                         {CONTRACT_DIRECTIONS[contractType]?.map((d) => (
                             <option key={d.value} value={d.value}>
                                 {d.label}
-                                {['overunder', 'matchdiff'].includes(contractType) && ` (digit ${barrierDigit})`}
+                                {useDigitContracts && ` (digit ${selectedDigit})`}
                             </option>
                         ))}
                     </select>
                 </div>
             )}
+
+            {/* Digit strategy: Over/Under OR Match/Differ + barrier digit 0-9 */}
+            <div className='speedbot-digit-section'>
+                <div className='speedbot-control-row'>
+                    <select className='speedbot-select speedbot-select--contract' value={useDigitContracts ? contractType : ''} onChange={(e) => e.target.value && handleDigitStrategyChange(e.target.value as 'overunder' | 'matchdiff')}>
+                        <option value='' disabled>
+                            Select strategy
+                        </option>
+                        {DIGIT_STRATEGIES.map((s) => (
+                            <option key={s.value} value={s.value}>
+                                {s.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className='speedbot-digit-picker-row'>
+                    <span className='speedbot-digit-picker-label'>Barrier digit</span>
+                    <div className='speedbot-digit-picker'>
+                        {DIGIT_OPTIONS.map((d) => (
+                            <button
+                                key={d}
+                                className={classNames('speedbot-digit-btn', { 'speedbot-digit-btn--active': selectedDigit === d })}
+                                onClick={() => setSelectedDigit(d)}
+                                type='button'
+                            >
+                                {d}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
 
             {/* Ticks / Stake / Take Profit / Stop Loss */}
             <div className='speedbot-inputs-row'>
@@ -827,7 +881,10 @@ const Speedbot: React.FC = () => {
                     {recentTrades.length === 0 && <span className='speedbot-trades-empty'>No trades yet — press START to begin</span>}
                     {recentTrades.map((t) => (
                         <div key={t.contractId} className={classNames('speedbot-trade-chip', `speedbot-trade-chip--${t.status}`)}>
-                            <span className='speedbot-trade-chip-dir'>{t.direction.toUpperCase()}</span>
+                            <span className='speedbot-trade-chip-dir'>
+                                {t.direction.toUpperCase()}
+                                {t.exitDigit !== null && <span className='speedbot-trade-chip-digit'> @{t.exitDigit}</span>}
+                            </span>
                             <span className='speedbot-trade-chip-profit'>{t.profit.toFixed(2)}</span>
                         </div>
                     ))}

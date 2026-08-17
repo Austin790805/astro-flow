@@ -422,3 +422,57 @@
         text-align: center;
     }
 }
+
+/* Digit strategy selector (Over/Under, Match/Differ + digit picker 0-9) */
+.speedbot-digit-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.speedbot-digit-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.speedbot-digit-picker-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    white-space: nowrap;
+}
+
+.speedbot-digit-picker {
+    display: flex;
+    gap: 4px;
+    flex-wrap: nowrap;
+}
+
+.speedbot-digit-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.12);
+    }
+
+    &--active {
+        background: #0070ba;
+        border-color: #0070ba;
+        transform: scale(1.08);
+    }
+}
+
+.speedbot-trade-chip-digit {
+    margin-left: 4px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.65);
+}
